@@ -1,0 +1,8 @@
+# build output and deps
+dist/
+node_modules/
+.astro/
+
+# editor / OS
+.DS_Store
+.vscode/

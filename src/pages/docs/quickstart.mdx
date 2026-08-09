@@ -1,0 +1,167 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Quickstart
+description: From install to a runnable Playwright suite and your first file:line findings, in one component and a handful of commands
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+
+## Install
+
+There are two channels and they ship different things, so pick by whether the target machine
+has Bun.
+
+The standalone binary needs no Bun and nothing installed alongside it:
+
+<InstallBlock />
+
+The source package needs Bun >= 1.1, and every task works with no further setup because
+`@biomejs/biome` comes along as a real dependency:
+
+<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Install" />
+
+One caveat before you pick the binary: it is self-contained Bun, but it cannot carry biome
+inside itself. `perf-harness`, `unit-browser` and `perf-static` work anywhere; `a11y` and
+`react-rules` shell out to biome and look for it in the project you are scanning
+(`node_modules/.bin/biome`) and then on `PATH`. Any React codebase that already lints with
+biome satisfies that for free — otherwise run `bun add -d @biomejs/biome` in that project, or
+use the source package. See [Install](/docs/install) for the full comparison.
+
+With the source package you can also skip the install entirely and use `bunx flawless-react`,
+which is what the commands below do.
+
+## A component to point it at
+
+Take a small dashboard:
+
+```tsx
+// src/Dashboard.tsx
+import type { FC } from "react";
+import { useMemo } from "react";
+import { Hello } from "./Hello.tsx";
+import { Card } from "./Card.tsx";
+
+interface DashboardProps {
+  title: string;
+  count: number;
+}
+
+export const Dashboard: FC<DashboardProps> = ({ title, count }) => {
+  const items = useMemo(() => Array.from({ length: count }, (_, i) => i), [count]);
+  return (
+    <main>
+      <h1>{title}</h1>
+      <Hello name="alice" count={count} active variant="primary" />
+      {items.map((i) => <Card key={i} title={`card ${i}`} body="hi" />)}
+    </main>
+  );
+};
+```
+
+The positional argument can be a single file or a glob (`src/**/*.tsx`); every match becomes an
+entry component and runs against every selected task.
+
+## Run it
+
+```bash
+bunx flawless-react ./src/Dashboard.tsx --out .profile/dashboard
+```
+
+That analyses `Dashboard.tsx`, follows its locally-imported children, and scaffolds the
+performance harness into `.profile/dashboard`. A run with a path and no `--tasks` runs
+`perf-harness` only, and prints one line per task:
+
+```text
+Summary:
+  [ok] perf-harness   files:12 findings:0  scaffolded perf suite for 3 component(s): Dashboard, Hello, Card
+```
+
+Run the binary or the globally installed package the same way, without `bunx`:
+
+```bash
+flawless-react ./src/Dashboard.tsx --out .profile/dashboard
+```
+
+With no arguments at all, and on a TTY, you get an interactive menu instead: it asks for the
+path or glob, the output directory (default `./.flawless`), and which of the five tasks to run,
+with `perf-harness` and `perf-static` preselected. When the run finishes it offers to run the
+generated tests for you.
+
+## Findings
+
+The scanning tasks report `file:line` findings. Ask for them by id:
+
+```bash
+bunx flawless-react ./src/Dashboard.tsx --out .profile/dashboard --tasks perf-static,a11y
+```
+
+Findings print grouped by file, as severity, `line:column`, rule and message, followed by the
+per-task summary:
+
+```text
+src/Card.tsx
+  ERROR  12:7  lint/a11y/useButtonType  Provide an explicit type prop for the button element.
+
+Summary:
+  [ok] perf-static    files:1 findings:0  static perf analysis: 0 finding(s) across 1 root(s)
+  [ok] a11y           files:1 findings:1  a11y: 1 finding(s) across 1 component(s)
+```
+
+The same information is written to disk. Each scanning task writes a JSON report under
+`<outDir>/reports/` (`Dashboard.a11y.json`, `Dashboard.perf-static.json`,
+`Dashboard.react-rules.json`), and every run writes `<outDir>/reports/summary.json`. A small
+`<Component>.flawless.json` is also dropped next to each analysed source file — counts per
+task, the three highest-severity findings, and the paths of the full reports — so issues
+surface where the code lives.
+
+## Run the generated suite
+
+The output directory is a standalone project. Install its dependencies and run it:
+
+```bash
+cd .profile/dashboard
+bun install
+bun run test           # headless Chromium
+bun run test:headed    # visible Chromium
+```
+
+The first time you run a generated suite you may need `bunx playwright install chromium`.
+
+You should see Playwright report five tests per analysed component (`mounts at defaults`,
+`variant matrix`, `click rerender`, `forced rerender × N`, `stress-click-rerender × 50`) and
+console lines with timing summaries:
+
+```text
+[Hello variants] {"min":0.4,"avg":1.1,"p50":0.9,"p95":1.8,"max":2.3,"n":2}
+[Hello forced] {"min":0.3,"avg":0.7,"p50":0.6,"p95":1.1,"max":1.6,"n":10}
+[Hello hooks] useState
+[heap] stress-click-rerender: 11896752 -> 12595549 bytes (delta +698797) -> heaps/Hello-profile__Hello-stress-click-rerender-x-50__stress-click-rerender-after.heapsnapshot
+```
+
+After the run, `./heaps/` contains `.heapsnapshot` artefacts for every stress scenario. They
+load in Chrome DevTools' Memory tab, and two of them compared there show what a scenario
+retained.
+
+Budgets are warn-only on the first run — you measure before you know what "fast enough" means
+for a component. Once the suite is generated it belongs to you: there is no regeneration step
+that overwrites your edits. [What gets generated](/docs/generated-suite) walks through each
+emitted file, and [Extending a suite](/docs/extending) covers turning the warnings into hard
+assertions.
+
+If `unit-browser` was part of the run, the suite's `package.json` also carries `test:unit`,
+`test:perf` and `test:browser` scripts for the Vitest units, the perf specs and the functional
+browser specs.
+
+## The three flags to know first
+
+| Flag | Effect |
+| --- | --- |
+| `--out <dir>` | Output directory for everything the run produces. Defaults to `./.flawless`. |
+| `--tasks <csv>` | Comma-separated task ids, which skips the interactive menu. The ids are `perf-harness`, `unit-browser`, `perf-static`, `a11y`, `react-rules`. |
+| `--no-interactive` | Never prompt. Requires a positional path or glob plus `--tasks`, which is what you want in CI or a script. |
+
+Task ids are validated, so a typo fails the run with the list of valid ids rather than doing
+something unexpected.
+
+Everything else — `--depth`, `--variants`, `--props`, `--provider`, `--api`, `--report`,
+`--run-tests`, `--json` and the Next.js flags — is in the [CLI reference](/docs/cli).

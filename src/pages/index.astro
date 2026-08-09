@@ -1,0 +1,231 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Hero from '../components/Hero.astro';
+import FeatureCard from '../components/FeatureCard.astro';
+---
+
+<Layout>
+	<Hero />
+
+	<section class="section">
+		<div class="container">
+			<span class="eyebrow">The five tasks</span>
+			<h2>Scaffolders and scanners, pick what you need.</h2>
+			<p class="section-lede">
+				Run them all, or name a subset with <code>--tasks</code>. Three write a runnable
+				suite you own; two report findings with <code>file:line</code> and change nothing.
+			</p>
+			<div class="grid">
+				<FeatureCard icon="⏱️" title="perf-harness">
+					<p>
+						Scaffolds a Playwright suite that mounts the component inside a React
+						<code>&lt;Profiler&gt;</code>, with react-scan and budget assertions.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="🧪" title="unit-browser">
+					<p>
+						Generates Vitest unit tests plus real-browser tests from the props and
+						interactions it found in your component.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="📉" title="perf-static">
+					<p>
+						Static analysis for the usual re-render causes — unmemoised props, inline
+						objects and closures, effects with unstable deps.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="♿" title="a11y">
+					<p>
+						An accessibility scan over the same files — missing alt text, click handlers
+						with no keyboard equivalent, label associations.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="✅" title="react-rules">
+					<p>
+						Biome-driven React correctness rules: array-index keys, conditional hooks,
+						missing dependencies.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="△" title="Next.js mode">
+					<p>
+						<code>--nextjs</code> detects the router style, emits MSW handlers and a
+						swagger from <code>app/api</code>, and wires the app resolver for you.
+					</p>
+				</FeatureCard>
+			</div>
+		</div>
+	</section>
+
+	<section class="section">
+		<div class="container">
+			<span class="eyebrow">Two channels</span>
+			<h2>A binary, or the source package.</h2>
+			<p class="section-lede">
+				Unlike most tools on this LAN, these two genuinely ship different things. Pick by
+				whether the machine has Bun.
+			</p>
+			<div class="recipe-grid">
+				<a class="recipe" href="/docs/install">
+					<h3>Standalone binary</h3>
+					<p>
+						No Bun needed, nothing to install alongside it. Three tasks work anywhere;
+						<code>a11y</code> and <code>react-rules</code> need biome reachable.
+					</p>
+					<span class="more">How to install →</span>
+				</a>
+				<a class="recipe" href="/docs/install">
+					<h3>Source package</h3>
+					<p>
+						<code>bun add -g flawless-react</code> from the local registry. Needs Bun, but
+						every task works with no further setup.
+					</p>
+					<span class="more">How to install →</span>
+				</a>
+				<a class="recipe" href="/docs/generated-suite">
+					<h3>What gets generated</h3>
+					<p>
+						Every file the scaffolders emit, and what each one is for — configs, host
+						server, unit and browser specs, reports.
+					</p>
+					<span class="more">Read →</span>
+				</a>
+				<a class="recipe" href="/docs/architecture">
+					<h3>Architecture</h3>
+					<p>
+						Why analyse and scaffold are two phases, what each produces, and what is
+						intentionally absent.
+					</p>
+					<span class="more">Read →</span>
+				</a>
+				<a class="recipe" href="/docs/extending">
+					<h3>Extending a suite</h3>
+					<p>
+						Mount inside a provider, mock data sources, turn the budgets into hard
+						failures, add interactions.
+					</p>
+					<span class="more">Read →</span>
+				</a>
+			</div>
+		</div>
+	</section>
+
+	<section class="section cta">
+		<div class="container cta-inner">
+			<h2>Point it at a component.</h2>
+			<p>Install in one curl, then run it against a .tsx file and read what comes back.</p>
+			<div class="cta-actions">
+				<a class="btn primary" href="/docs/intro">Get started</a>
+			</div>
+		</div>
+	</section>
+</Layout>
+
+<style>
+	.section {
+		padding: 4rem 0 2rem;
+	}
+	.section h2 {
+		max-width: 24ch;
+	}
+	.section-lede {
+		color: var(--fg-muted);
+		max-width: 60ch;
+		font-size: 1.05rem;
+		margin-bottom: 2.5rem;
+	}
+	.grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		gap: 1rem;
+	}
+	.recipe-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		gap: 1rem;
+	}
+	.recipe {
+		display: block;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 1.5rem 1.4rem;
+		color: var(--fg);
+		transition: all 0.2s ease;
+	}
+	.recipe:hover {
+		border-color: var(--accent);
+		transform: translateY(-2px);
+		color: var(--fg);
+	}
+	.recipe h3 {
+		margin: 0 0 0.5rem;
+		font-size: 1.1rem;
+	}
+	.recipe p {
+		color: var(--fg-muted);
+		font-size: 0.95rem;
+		margin: 0 0 1rem;
+	}
+	.recipe .more {
+		color: var(--accent);
+		font-weight: 600;
+		font-size: 0.9rem;
+	}
+	.recipe code {
+		font-size: 0.82em;
+	}
+
+	.cta {
+		padding: 5rem 0 4rem;
+	}
+	.cta-inner {
+		background: linear-gradient(120deg, var(--bg-soft) 0%, var(--bg-elevated) 100%);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-lg);
+		padding: 3rem 2rem;
+		text-align: center;
+	}
+	.cta-inner h2 {
+		max-width: none;
+		margin: 0 0 0.5rem;
+	}
+	.cta-inner p {
+		color: var(--fg-muted);
+		max-width: 48ch;
+		margin: 0 auto 1.75rem;
+	}
+	.cta-actions {
+		display: flex;
+		gap: 0.6rem;
+		justify-content: center;
+		flex-wrap: wrap;
+	}
+	.btn {
+		display: inline-flex;
+		align-items: center;
+		padding: 0.7rem 1.1rem;
+		border-radius: 8px;
+		font-weight: 600;
+		font-size: 0.95rem;
+		border: 1px solid var(--border);
+		transition: all 0.15s ease;
+	}
+	.btn.primary {
+		background: linear-gradient(120deg, var(--accent) 0%, var(--accent-2) 100%);
+		color: var(--bg);
+		border-color: transparent;
+	}
+	.btn.primary:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 8px 24px rgba(231, 169, 85, 0.35);
+		color: var(--bg);
+	}
+	.btn.ghost {
+		color: var(--fg);
+		background: var(--bg-soft);
+	}
+	.btn.ghost:hover {
+		border-color: var(--accent);
+		color: var(--accent);
+	}
+</style>

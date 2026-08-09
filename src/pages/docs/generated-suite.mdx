@@ -1,0 +1,585 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: What gets generated
+description: A file-by-file walk through everything the flawless-react scaffolders write into the output directory, what each file is for, and when you would edit it
+---
+
+## The output directory
+
+Every file under `<outDir>/` is a string template emitted by the scaffolders. The result is fully
+standalone — it knows nothing about `flawless-react` once it has been written, and you can commit,
+edit, fork, or delete it without affecting the generator.
+
+Each task writes its own slice of the directory. `perf-harness` owns `host/` and `tests/`,
+`unit-browser` owns `unit/` and `browser/`, and the three analysis tasks (`perf-static`, `a11y`,
+`react-rules`) write JSON into `reports/`. The slices barely overlap: `package.json` is the only
+file two tasks both touch, and the second one merges into it rather than replacing it. Everything
+else the tasks share is the component analysis they all read from.
+
+The default output directory is `./.flawless`; `--out <dir>` moves it.
+
+```text
+<outDir>/
+├── package.json              # standalone deps + scripts (merged, not replaced, by unit-browser)
+├── tsconfig.json
+├── playwright.config.ts      # perf suite — auto-boots host/server.ts (and mock/server.ts with --api)
+├── vitest.config.ts          # unit-browser
+├── setup.ts                  # unit-browser — jest-dom matchers
+├── budgets.json              # per-component mount/update budgets (warn-only by default)
+├── host/
+│   ├── server.ts             # Bun.serve over a Bun.build bundle of your component(s)
+│   ├── _polyfill.ts          # process / global / setImmediate shims for the browser
+│   ├── index.html            # the shell the bundle mounts into
+│   └── main.tsx              # createRoot + <Profiler> + react-scan + window.__profile driver
+├── tests/                    # perf-harness
+│   ├── _helpers.ts           # render-info / scan-event harvesters, summarize() stats
+│   ├── _heap.ts              # CDP-driven heap-snapshot helpers (write to ./heaps/)
+│   └── <Component>.profile.spec.ts
+├── unit/                     # unit-browser
+│   └── <Component>.test.tsx
+├── browser/                  # unit-browser
+│   ├── playwright.config.ts
+│   └── <Component>.spec.ts
+├── mock/                     # only with --api
+│   ├── server.ts             # Bun.serve on :5174, host proxies non-asset requests to it
+│   └── routes.ts             # static route handlers derived from the OpenAPI spec
+├── reports/                  # perf-static / a11y / react-rules findings + summary.json
+├── scripts/report.mjs        # only with --report
+├── heaps/                    # populated at test time — V8 .heapsnapshot files
+└── README.md                 # how to run + customise the suite
+```
+
+A `<Component>.flawless.json` is also dropped next to each analysed source file, outside the output
+directory. That is covered at the end of this page.
+
+## package.json
+
+`perf-harness` declares the suite as its own private package with three runtime dependencies:
+
+```json
+{
+  "dependencies": {
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "react-scan": "^0.4.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "typescript": "^5.6.0"
+  }
+}
+```
+
+Render timing comes from React's built-in `<Profiler>`, so no separate measurement library is
+required. The package name is the suite's own name with a `-profile` suffix, and it is marked
+`private` and `"type": "module"`.
+
+Scripts from `perf-harness`: `test` (`playwright test`), `test:headed`
+(`playwright test --project=interactive`), and `report` (`node ./scripts/report.mjs`, which only
+exists if you passed `--report`).
+
+If `unit-browser` runs as well, it **merges into** this file rather than replacing it. It adds
+`test:unit` (`vitest run`), `test:perf` (`playwright test tests/`) and `test:browser`
+(`playwright test --config browser/playwright.config.ts`), and adds `vitest`, `@vitest/ui`, `jsdom`,
+`@testing-library/react`, `@testing-library/user-event` and `@testing-library/jest-dom` to
+`devDependencies`. Existing pinned versions are kept, so re-running does not silently downgrade
+anything you have bumped by hand. If no `package.json` exists yet — `unit-browser` on its own —
+one is created with the same base deps.
+
+**Edit when**: your parent project uses a different React major (17 or 19). Pin the suite's `react`
+and `react-dom` to match before `bun install`.
+
+## tsconfig.json
+
+A minimal config tuned for Bun plus Playwright: `target` and `module` at `ESNext`, bundler module
+resolution, `strict`, `noEmit`, and an `include` covering `host/`, `tests/` and
+`playwright.config.ts`.
+
+Two lines are non-default and matter: `"jsx": "react-jsx"` and `"allowImportingTsExtensions": true`.
+Together they let the host file say `import { Foo } from "./Foo.tsx"` without choking the type
+checker.
+
+**Edit when**: you want stricter type-checking across the suite, or you want to add path aliases.
+
+## playwright.config.ts
+
+The perf suite's config. `testDir` is `./tests`, the reporters are `list` plus an HTML report
+written to `playwright-report/` (never auto-opened), `preserveOutput` is `"always"`, and traces are
+kept on failure. Two projects are defined: `chromium` (default, headless) and `interactive`
+(headed).
+
+The key field is `webServer`, which auto-boots the host before any test runs:
+
+```ts
+webServer: {
+  command: "bun host/server.ts",
+  url: "http://127.0.0.1:5173",
+  reuseExistingServer: !process.env.CI,
+  stdout: "ignore",
+  stderr: "pipe",
+}
+```
+
+With `--api`, `webServer` becomes an array and the mock server on port 5174 is booted alongside it.
+
+Workers are pinned to 1 and `fullyParallel` is off, because the host serves one component at a time
+and parallel mounts would fight over the singleton `activeRoot`.
+
+**Edit when**: you need a different port, you want to add a `firefox` or `webkit` project, or you
+want to run tests in parallel — which requires reworking the host to scope state per page.
+
+## host/server.ts
+
+A small `Bun.serve` that builds `host/main.tsx` once via `Bun.build({ target: "browser" })` and
+serves three routes: `/` (the HTML shell), `/bundle.js` (the built ESM), and a `404` for everything
+else. On boot it prints `host listening on http://127.0.0.1:5173`, which is the line to look for
+when a run fails early.
+
+The build runs **at startup**, not per request, so test runs hit a hot bundle. If you are iterating
+on `main.tsx` you can either restart the server manually or replace the one-shot build with a
+`Bun.build` watcher.
+
+Two details in the build config exist for a specific reason:
+
+- A `resolve-from-suite` Bun plugin resolves bare specifiers (`react`, `react-dom/client`, and so
+  on) against the suite's own `node_modules` instead of the importing file's directory. Component
+  files usually live outside the suite — in your repo, or in a fixtures directory with no React
+  installed — and without the plugin those imports fail to resolve.
+- `define: { global: "globalThis" }` rewrites bare `global` references at build time. The runtime
+  half of that problem is handled by `host/_polyfill.ts`.
+
+With `--api`, any request that is not `/`, `/index.html` or `/bundle.js` is proxied to the mock
+server, method, headers and body unchanged.
+
+**Edit when**: you want to inject env vars into the bundle, add CSS, or serve additional static
+assets such as mock JSON fixtures.
+
+## host/index.html
+
+Two lines matter: a `<div id="root">` and a `<script type="module" src="/bundle.js">`. The rest is
+boilerplate — charset, viewport, title.
+
+**Edit when**: you need a different root element ID, a CSS reset, or extra DOM your component
+depends on, such as a portal target.
+
+## host/_polyfill.ts
+
+Browser shims for Node-only globals that some runtime dependencies touch at module init, before any
+user code runs. It defines `process` (with `env`, `platform`, `versions`, `argv`), points `global`
+at `globalThis`, and falls back to a `setTimeout`-based `setImmediate`.
+
+It is imported first from `main.tsx`. ESM evaluates imports in source order, so `globalThis` is
+patched before any other module is initialised.
+
+## host/main.tsx
+
+This is the heart of the runtime. Three things happen here:
+
+1. **react-scan is initialised once at module load**, with `log: false`. Its `onRender` callback
+   buffers any render flagged `unnecessary: true` into a `scanEvents` array, tagged with the
+   component's display name and a `performance.now()` timestamp.
+2. A **`REGISTRY`** maps component names to imported components. The CLI populates this from the
+   analysed `ComponentTree`, one import line and one registry entry per component.
+3. **`window.__profile`** is exposed for the Playwright driver:
+
+```ts
+window.__profile = {
+  list(): string[];
+  async mount(name, props): Promise<void>;
+  async rerender(name, props): Promise<void>;
+  async unmount(): Promise<void>;
+  getRenderInfo(): { renderCount, renderTime }; // populated by React.Profiler
+  getScanEvents(): ScanEvent[];
+  clearScanEvents(): void;
+};
+```
+
+`mount` wraps the user's component in React's built-in `<Profiler id={name} onRender={...}>` and
+renders it via `activeRoot.render(...)`. Each render fires `onRender`, which increments
+`renderCount[name]` and appends to `renderTime[name]` — the `mount` phase writes `mount`, every
+later phase pushes onto `updates`. `mount` then polls on `requestAnimationFrame` until the first
+render lands, and throws if nothing has rendered within 5000 ms. `rerender` re-issues the render and
+waits one `requestAnimationFrame` for React to commit. `unmount` tears down the root and clears both
+dictionaries, which is why the per-test counters start clean.
+
+Measurement uses `<Profiler>` rather than a patching library on purpose: patching approaches
+instrument the classic JSX runtime (`React.createElement`), and `Bun.build` emits JSX through the
+automatic `react/jsx-runtime`. `<Profiler>` works with either runtime and across React versions, so
+the host stays portable.
+
+**Edit when**: you want to wrap components in a provider (router, theme, query client, store) —
+prefer the `--provider <file>` flag at scaffold time, which threads your wrapper through `mount` and
+`rerender` for you. You can also expose additional helpers on `window.__profile` if your tests need
+them.
+
+## host/main.tsx with --provider
+
+If you scaffolded with `--provider <file>`, `host/main.tsx` imports the file as `AppProvider` and
+wraps every render in it:
+
+```ts
+import AppProvider from "../../src/providers/AppProvider.tsx"; // your file
+// ...
+function wrap(tree: ReactNode): ReactNode {
+  return createElement(AppProvider as never, null, tree);
+}
+```
+
+Without a provider, `wrap` is the identity function, so the call sites stay uniform either way.
+
+The provider file must default-export a React component that accepts `children`. Anything with a
+Provider in the React ecosystem fits — Redux's `<Provider store={...}>`, React Query's
+`<QueryClientProvider client={...}>`, theme providers. Wrap them in your own `AppProvider` and you
+only have to maintain one file:
+
+```tsx
+// src/providers/AppProvider.tsx
+import type { ReactNode } from "react";
+import { Provider } from "react-redux";
+import { QueryClientProvider } from "@tanstack/react-query";
+import { store } from "../store";
+import { queryClient } from "../query";
+
+export default function AppProvider({ children }: { children: ReactNode }) {
+  return (
+    <Provider store={store}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </Provider>
+  );
+}
+```
+
+**Edit when**: you want async setup before each mount — seeding store state, logging in a mock user.
+Add a `setup`/`teardown` named export and call them from `mount`/`unmount` in `host/main.tsx`.
+
+## tests/_helpers.ts
+
+Thin wrappers around `page.evaluate(...)` so the spec files stay readable: `mountComponent`,
+`rerenderComponent`, `unmount`, `getRenderInfo`, `getScanEvents`, `clearScanEvents`, plus
+`quantile(sorted, q)` and `summarize(samples)`, which computes `min / avg / p50 / p95 / max` and the
+sample count `n`.
+
+**Edit when**: you want a higher-level helper such as `mountWithUser(page, name, props, userFixture)`
+that sets up a mock auth context first.
+
+## tests/_heap.ts
+
+Drives the browser's V8 heap profiler through Playwright's CDP session
+(`HeapProfiler.takeHeapSnapshot`). It produces `.heapsnapshot` artefacts in the same format Chrome
+DevTools' Memory tab consumes, so two snapshots can be loaded and diffed in the Comparison view.
+
+Three exports:
+
+```ts
+takeHeapSnapshot(page, label, testInfo): Promise<{ byteSize: number; path: string }>;
+bracketScenario(page, name, testInfo, fn): Promise<void>;
+repeatClick(page, selector, n): Promise<void>;
+```
+
+`bracketScenario` wraps a scenario callback with before/after snapshots. To keep CI artefacts small,
+snapshots are **persisted only when** the scenario fails, or the scenario name starts with
+`stress-`. On a clean non-stress pass the captured buffers are dropped. When they are kept, the byte
+delta is logged to stdout as a coarse leak indicator:
+
+```text
+[heap] click-rerender: 12345 -> 12410 bytes (delta +65) -> heaps/Foo-profile__Foo-click-rerender__click-rerender-after.heapsnapshot
+```
+
+Persisted snapshots land in `<suite-root>/heaps/<spec>__<test>__<label>.heapsnapshot`, resolved from
+the working directory the test run was invoked in. Filenames are deterministic — no hashed suffixes —
+so you can `open heaps/...` straight from the terminal instead of digging through the report's
+content-addressed data directory. They are also attached to the Playwright HTML report, so you can
+navigate from a failed test result to its snapshot.
+
+`HeapProfiler.collectGarbage` is invoked before each snapshot, so the result reflects
+*retained-by-reachability* rather than *not-yet-collected*.
+
+**How to view a snapshot**: open Chrome, DevTools, Memory tab, then **Load** (the folder icon) and
+pick the `.heapsnapshot` file. Switch to **Comparison** view and load a second snapshot to find
+objects retained after the scenario.
+
+**Edit when**: you want different snapshot timing — mid-scenario rather than just before and after —
+or you want the byte delta as a hard assertion:
+`expect(after.byteLength - before.byteLength).toBeLessThan(THRESHOLD)`.
+
+## tests/&lt;Component&gt;.profile.spec.ts
+
+One spec per analysed component. Each spec is **fully self-contained**: its `DEFAULTS`, `VARIANTS`
+and `HOOKS` are baked in as literals at the top. There is no shared fixture file and no implicit
+dependency between specs.
+
+A `beforeEach` navigates to the host, waits for `window.__profile.mount` to exist, and clears the
+react-scan buffer. An `afterEach` unmounts, so each test starts from a clean root and clean
+counters.
+
+Where the analyser detected an `onClick` handler, the click-driven tests target it with a real
+Playwright locator — `getByTestId`, `getByLabel`, `getByRole` with an accessible name, an ID
+selector, or `getByText`, in that order of preference. Where it detected nothing, they fall back to
+`page.locator("button").first()`.
+
+### mounts at defaults
+
+```ts
+await mountComponent(page, NAME, DEFAULTS);
+const info = await getRenderInfo(page);
+expect(info.renderCount[NAME]?.value).toBeGreaterThanOrEqual(1);
+// warns if info.renderTime[NAME].mount > budgets[NAME].mountMs
+```
+
+The mount budget breach is intentionally a `console.warn`, not `expect(...).toBeLessThan(...)`. CI
+should not fail the first time a component is profiled — you would never get past the initial
+measurement run. **To make it hard**, change the `console.warn(…)` line to
+`expect(mountMs).toBeLessThan(budget)`.
+
+### variant matrix
+
+Mounts at defaults, then iterates the `VARIANTS` array, calling `rerenderComponent(page, NAME, v)`
+for each and collecting the update duration that render produced. Skipped entirely if the static
+parse produced zero variants. After the loop it logs the summary as `[<Name> variants] {...}` and
+warns if the p95 exceeds the component's `updateMs` budget.
+
+### click rerender
+
+Looks for the click target in the mounted DOM. If there is none, the test skips. If there is one:
+
+- Clear the react-scan buffer and capture the current render count.
+- Click the target.
+- Wait — via `page.waitForFunction` against the live render count — for the count to increment.
+- Read `getScanEvents()`: any unnecessary rerenders flagged by react-scan become a console warning.
+
+This test is the most exploratory of the five. It works for components with a single primary action
+button. If your component has more nuanced interactions — form fields, drag handles, keyboard
+shortcuts — this is the test you will most often replace by hand.
+
+### forced rerender × N
+
+Cycles `--variants × 10` renders (minimum 10) through the variant pool, or through `[DEFAULTS]` if
+there are no variants, then prints a `{min, avg, p50, p95, max, n}` summary as `[<Name> forced]` and
+asserts that at least one update was timed. The `HOOKS` list is logged at the end for context.
+
+**Edit when**: you want to assert hard ceilings on p95, you want a different N, or you want to drive
+prop changes through your own data fixtures rather than the synthesised ones.
+
+### stress-click-rerender × 50
+
+A leak-detection scenario. It mounts the component, takes a baseline heap snapshot, clicks the
+primary target fifty times in a tight loop, waits for the render count to catch up, then takes a
+final heap snapshot. Because the scenario name starts with `stress-`, both snapshots are **always**
+persisted and attached to the Playwright report. A snapshot of a small component is typically under
+500 KB.
+
+There is no assertion on the byte delta — it is too noisy across machines and React versions. The
+value is the saved snapshots: open them in Chrome DevTools' Memory tab, switch to Comparison view,
+and look for unexpectedly retained objects such as detached DOM nodes or growing arrays of listener
+closures.
+
+The other three scenarios (`variant matrix`, `click rerender`, `forced rerender × N`) are wrapped by
+`bracketScenario(...)` too. They take before/after snapshots but **only attach them on failure**,
+which keeps passing-run artefacts small.
+
+**Edit when**: fifty clicks is not enough to surface a slow leak — bump it to 500 — or you want a
+hard byte-delta ceiling, in which case replace the `bracketScenario` body with explicit
+`takeHeapSnapshot` calls and an `expect(after - before).toBeLessThan(...)`.
+
+## vitest.config.ts
+
+Emitted by `unit-browser`. It sets `environment: "jsdom"`, loads `./setup.ts` as a setup file,
+includes `unit/**/*.test.{ts,tsx}`, and turns Vitest globals on.
+
+## setup.ts
+
+One line by default: it imports `@testing-library/jest-dom/vitest` so the matchers are available in
+every unit test. In Next.js mode it also starts an MSW node server around the suite —
+`listen` before all tests, `resetHandlers` after each, `close` at the end — using the same handlers
+the browser layer uses, so both layers agree on what `/api/*` returns.
+
+## unit/&lt;Component&gt;.test.tsx
+
+One jsdom unit spec per analysed component, using Vitest, `@testing-library/react` and
+`@testing-library/user-event`. Like the perf specs, each one bakes its `DEFAULTS` and `VARIANTS` in
+as literals.
+
+Every prop matching `/^on[A-Z]/`, plus every handler the analyser saw bound to a detected
+interaction, becomes a `vi.fn()` in a `handlers` object that is spread into the component on every
+render and cleared in `beforeEach`. A local `renderTarget(extra)` helper merges defaults, handlers
+and per-test overrides.
+
+What gets emitted:
+
+- A render-at-defaults smoke test.
+- A `describe` block that renders once per variant row.
+- One test per detected click handler. Where the handler is bound to a prop, the test dispatches the
+  real event — `userEvent.click`, `userEvent.type`, `userEvent.pointer`, `userEvent.keyboard`,
+  `focus`/`blur`, depending on the event name — asserts that handler was called, and asserts that
+  **no other** handler prop was called. That isolation assertion is the interesting half: it catches
+  a click that fires two callbacks. Where the handler is a local or inline function instead, the
+  test still dispatches the event and asserts that no prop handler fired.
+- One test per detected form: fills each field the analyser could locate, with a type-appropriate
+  sample value (`user@example.com` for an email input, `42` for a number, and so on), clicks the
+  submit button, and asserts the submit handler ran.
+- If no interactions were detected at all, a fallback test per handler prop that clicks the first
+  `<button>` in the container and asserts the handler fired.
+
+Element lookups prefer `getByTestId`, then `getByLabelText` for an `aria-label`, then `getByRole`
+with the accessible name, then an ID or text query. That ordering means the generated tests break
+for the right reasons — a changed class name does not fail them, a removed accessible name does.
+
+## browser/playwright.config.ts
+
+A second, separate Playwright config for the functional browser specs. It has its own `testDir`
+(the `browser/` directory itself), matches `*.spec.ts`, runs a single worker with the `list`
+reporter, keeps traces on failure, and boots the same host with `bun ../host/server.ts` on port
+5173. Keeping it separate from the perf config is what lets `bun run test:perf` and
+`bun run test:browser` run independently, with different reporters and different test directories.
+
+## browser/&lt;Component&gt;.spec.ts
+
+The functional counterpart to the unit specs: the same component, the same detected interactions,
+but driven through the real host bundle in Chromium rather than jsdom.
+
+Every spec starts with a mount-without-errors test that collects `console` errors and `pageerror`
+events, mounts the component through `window.__profile.mount`, and asserts both that nothing was
+logged as an error and that `#root` actually has content. After that comes one test per detected
+click (dispatching through the equivalent Playwright locator API) and one per detected form (fill,
+submit, assert no page errors). If no interactions were detected, a placeholder test records that
+the mount-only smoke above is sufficient.
+
+These specs assert on *errors and mountability*, not on timings — the timings live in the perf
+suite. They are the layer that catches a component which renders fine under jsdom but throws in a
+real browser.
+
+## budgets.json
+
+```json
+{
+  "Dashboard": { "mountMs": 50, "updateMs": 16 },
+  "Hello": { "mountMs": 50, "updateMs": 16 },
+  "Card": { "mountMs": 50, "updateMs": 16 }
+}
+```
+
+Per-component budgets in milliseconds, one entry per analysed component. The defaults are loose on
+purpose: on the first run you measure, and on subsequent runs you tighten them to your observed p95
+plus about 20%.
+
+The numbers are read by every perf spec but only produce **warnings** by default. See the
+`mounts at defaults` and `variant matrix` notes above for how to upgrade those into hard assertions.
+
+## mock/server.ts and mock/routes.ts
+
+Only with `--api <openapi.json|yaml>`. The suite then ships a standalone Bun mock server on port
+5174, and the host server on 5173 transparently proxies every non-asset request to it — so the
+component's relative `fetch('/api/users')` calls reach the mock with no code changes.
+
+`mock/routes.ts` is a flat list of routes, **derived at scaffold time** from the OpenAPI spec:
+
+```ts
+export const routes: MockRoute[] = [
+  { method: "GET",  path: "/api/users",       status: 200, body: [{ id: 1, name: "Alice" }] },
+  { method: "POST", path: "/api/users",       status: 201, body: { id: 0, name: "" } },
+  { method: "GET",  path: "/api/users/{id}",  status: 200, body: { id: 1, name: "Alice" } },
+];
+```
+
+Body extraction priority: the first `application/json` example, then a schema-synthesised default
+(object becomes an object with the property keys, array becomes a one-element sample, primitives
+become empty or zero, an `enum` becomes its first value). `$ref` chains are resolved one level deep.
+
+`mock/server.ts` compiles each path template at startup (`/users/{id}` becomes a regex with capture
+groups), matches incoming requests against the list, and falls through to a JSON `404` body. The
+root `/` returns `200 {ok:true, routes: N}` so Playwright's `webServer` health check passes — it
+rejects a 404 when probing readiness.
+
+**Edit when**: you want stateful mocks — a route handler that mutates an in-memory store so the next
+GET reflects it — conditional responses based on query or body, or delayed responses. The generated
+file is a starting point: replace any route's static body with a function that inspects the
+`Request` and returns a `Response`.
+
+## scripts/report.mjs
+
+Only with `--report`. It reads `playwright-report/index.html` from the last run, pulls out the
+per-component variant and forced-rerender stat lines, and writes a `report.md` summarising them. It
+is a plain Node script with no Playwright runtime needed, emitted executable, and it exits with an
+error if you run it before the first test run.
+
+**Edit when**: you want HTML output, you want to push the summary to a metrics endpoint, or you want
+to diff against a baseline JSON.
+
+## reports/
+
+The three analysis tasks do not scaffold anything runnable — they write findings. Each one produces
+one JSON file per analysed root component:
+
+| File | Written by | Contents |
+| --- | --- | --- |
+| `<Name>.perf-static.json` | `perf-static` | `component`, `file`, `findings` |
+| `<Name>.a11y.json` | `a11y` | `component`, `file`, `findings` |
+| `<Name>.react-rules.json` | `react-rules` | `component`, `file`, a `note`, `findings` |
+| `summary.json` | always | a timestamp plus one row per task that ran |
+
+Every finding has the same shape, whichever task produced it:
+
+```ts
+{
+  rule: string;                    // "perf/unresolved-prop", "lint/a11y/useAltText", …
+  severity: "error" | "warn";
+  file: string;
+  line: number;
+  column: number;
+  message: string;
+  source: TaskId;                  // which task found it
+}
+```
+
+That uniformity is the point: the same findings are printed to the terminal grouped by file, rolled
+into `summary.json`, and rolled into the per-component sidecar below, without each task needing its
+own reporting path.
+
+`perf-static` derives its findings from the parsed tree rather than from a linter. It raises
+`perf/no-memoisation-with-children` when a component renders three or more child components but uses
+none of `useMemo`, `useCallback`, `memo` or `useRef` — every parent rerender will then rerender all
+of them — and `perf/unresolved-prop` for each prop it could not synthesise a default for, because
+the generated tests will pass `undefined` there.
+
+`a11y` and `react-rules` both shell out to biome with a curated rule set written to a temporary
+config, so your project's own `biome.json` is bypassed and the results do not depend on how strictly
+the project happens to be configured. `a11y` additionally drops any finding whose category is not
+under `lint/a11y`, so an accessibility scan never reports correctness rules its config did not
+enable.
+
+`summary.json` records `ts` (an ISO timestamp) and, for each task, its `id`, whether it was `ok`,
+its one-line `summary`, how many files it wrote, how many findings it produced, and any `error`.
+It is written on every run, even when only scaffolding tasks were selected.
+
+## &lt;Component&gt;.flawless.json
+
+Written next to each analysed **source** file rather than into the output directory, so issues
+surface where the code lives. Each one carries the component name and file path, per-task finding
+counts plus a total, the top three findings ranked with errors before warnings, and absolute paths
+to that component's three report files.
+
+Pass `--no-inline-summary` to skip these.
+
+## heaps/
+
+Not generated — created at test time by `tests/_heap.ts`, holding the `.heapsnapshot` files
+described above. Worth adding to `.gitignore` alongside `reports/` and `playwright-report/`.
+
+## README.md
+
+A short user-facing README for the *generated* suite, separate from the tool's own documentation. It
+covers how to run the suite, what is measured, and which files to reach for when customising. It is
+yours to edit.
+
+## After generation
+
+Run `bun install` in the output directory once, then the scripts the tasks you selected added.
+`bunx playwright install chromium` may be needed the first time, and again after a Playwright
+upgrade pulls in a new browser build.
+
+From that point the suite is ordinary test code. It has no runtime dependency on `flawless-react`,
+nothing reaches back into the generator, and every file above is a starting point rather than a
+contract.

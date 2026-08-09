@@ -1,0 +1,75 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Install
+description: The two install channels for flawless-react, what each needs on the target machine, and which tasks each can run
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+
+## Two channels
+
+There are two ways to install `flawless-react`, both served from the LAN. They ship different
+things, so pick by whether the target machine has Bun and by which of the five tasks you need.
+
+|  | Standalone binary | Source package |
+| --- | --- | --- |
+| Needs Bun on the target | No | Yes, Bun >= 1.1 |
+| Needs `jq` on the target | Yes | Yes |
+| `perf-harness`, `unit-browser`, `perf-static` | Work anywhere | Work anywhere |
+| `a11y`, `react-rules` | Need biome in the scanned project or on `PATH` | Work with no further setup |
+| Ships biome | No — a compiled binary cannot carry it | Yes — `@biomejs/biome` is a real dependency |
+
+The CLI shells out to `jq`, so that has to be present either way.
+
+## Standalone binary
+
+Nothing to install alongside it, and no Bun on the target machine.
+
+<InstallBlock />
+
+This is the right channel for a build agent, a container, or any box where you do not want a
+Bun toolchain. `perf-harness`, `unit-browser` and `perf-static` are fully self-contained in the
+binary; `a11y` and `react-rules` have the caveat described below.
+
+## Source package
+
+Every task works with no further setup, because biome comes along as a real dependency.
+
+<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" />
+
+You can also run it one-shot with no install at all, which is the usual way to try it against a
+single component:
+
+```bash
+bunx flawless-react ./src/Dashboard.tsx
+```
+
+## Why the binary cannot carry biome
+
+The binary is self-contained Bun, which means it has no `node_modules` tree at runtime — there
+is nowhere for a bundled biome to live. Three of the five tasks do not care: `perf-harness`,
+`unit-browser` and `perf-static` are pure analysis and scaffolding, and they work anywhere.
+
+The other two, `a11y` and `react-rules`, shell out to biome. They resolve it from the project
+you are scanning, first at `node_modules/.bin/biome` and then on `PATH`. Any React codebase that
+already lints with biome satisfies that for free, and you will never notice the limitation.
+
+If the project you are scanning does not have biome, you have two fixes:
+
+```bash
+# in the project being scanned
+bun add -d @biomejs/biome
+```
+
+or install the source package instead, where biome is a dependency of the tool itself.
+
+## Verify it worked
+
+```bash
+flawless-react --version
+flawless-react --help
+```
+
+`--version` prints the installed version. `--help` lists every flag and the five task ids —
+`perf-harness`, `unit-browser`, `perf-static`, `a11y`, `react-rules` — which are the exact
+strings `--tasks` accepts. If you went the one-shot route, prefix both with `bunx`.

@@ -1,0 +1,56 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Docs
+description: Start here — what flawless-react does, how to install it, and where the rest of these pages lead.
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+
+## What it is
+
+`flawless-react` is a multi-task quality kit for React components. Point it at a `.tsx` file
+(or a glob such as `src/**/*.tsx`), pick which of the five tasks to run, and it reads each
+component's type signature, walks its JSX to discover locally-imported children, and produces
+a runnable Playwright + Vitest suite, an accessibility scan, and a Biome-driven correctness
+report — with file:line findings for every issue. Run it with no arguments for an interactive
+checkbox menu. The generated suite is a standalone project that knows nothing about the tool
+once written: there is no regeneration step that overwrites your edits, so you can tighten
+budgets, add scenarios and swap in real fixtures like any other test code.
+
+<InstallBlock />
+
+That is the standalone binary — no Bun needed on the target machine. The source package
+(`bun add -g flawless-react --registry https://npm.in.drlario.org`) needs Bun >= 1.1 but
+carries `@biomejs/biome` as a real dependency, so every task works with no further setup.
+The difference matters for two of the five tasks; see [Install](/docs/install).
+
+## Where to next
+
+- [Intro](/docs/intro) — why the tool exists and what the hours of hand-written harness boilerplate look like without it.
+- [Install](/docs/install) — the two channels, what each one ships, and the biome caveat for the binary.
+- [Quickstart](/docs/quickstart) — generate a suite for one component and get a green Playwright run.
+- [CLI reference](/docs/cli) — every flag, its default, and its effect.
+- [What gets generated](/docs/generated-suite) — the emitted suite file by file, and what to change in each.
+- [Next.js mode](/docs/nextjs) — `--nextjs` router detection, MSW handlers from your API routes, and output under `<project-root>/flawless/`.
+- [Extending a suite](/docs/extending) — patterns for editing generated specs without regretting it.
+- [Architecture](/docs/architecture) — the analyse phase, the scaffold phase, and why they are split.
+- [Limits & troubleshooting](/docs/limits) — what the static analyser deliberately does not do, and fixes for the common failure messages.
+
+## At a glance
+
+The five task ids, and what each one leaves behind:
+
+| Task id | What it produces |
+| --- | --- |
+| `perf-harness` | A Playwright suite driven by React's built-in `<Profiler>` and `react-scan` — a bundled host page, one spec per analysed component, per-component `budgets.json`, and `.heapsnapshot` files under `heaps/`. |
+| `unit-browser` | Vitest + `@testing-library/react` unit tests plus Playwright functional browser specs for every component in the tree. |
+| `perf-static` | `reports/<Component>.perf-static.json` — rerender and memoisation risks (children rendered with no `useMemo`/`useCallback`/`memo`/`useRef`) and props the analyser could not synthesise a default for. |
+| `a11y` | `reports/<Component>.a11y.json` — Biome's accessibility rules over the targeted tree, as file:line findings. |
+| `react-rules` | `reports/<Component>.react-rules.json` — a curated set of bug-catching React and hooks rules via Biome (`useExhaustiveDependencies`, `useHookAtTopLevel`, `useJsxKeyInIterable`, and friends), bypassing any local `biome.json`. |
+
+Findings also surface where the code lives: a small `<Component>.flawless.json` is dropped next
+to each source file unless you pass `--no-inline-summary`.
+
+`perf-harness`, `unit-browser` and `perf-static` run anywhere. `a11y` and `react-rules` shell
+out to biome, which the binary cannot carry inside itself — it looks for biome in the project
+being scanned (`node_modules/.bin/biome`) and then on `PATH`.

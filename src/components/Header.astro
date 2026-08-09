@@ -1,0 +1,91 @@
+---
+const path = Astro.url.pathname;
+const isActive = (prefix: string) =>
+	prefix === '/' ? path === '/' : path.startsWith(prefix);
+---
+
+<header class="site-header">
+	<div class="container bar">
+		<a href="/" class="brand" aria-label="flawless-react home">
+			<span class="mark" aria-hidden="true">🔬</span>
+			<span class="wordmark">flawless-react</span>
+		</a>
+		<nav class="nav" aria-label="Primary">
+			<a href="/docs/intro" class:list={[{ active: isActive('/docs') && !isActive('/docs/tasks') }]}>Docs</a>
+			<a href="/docs/quickstart" class:list={[{ active: path === '/docs/quickstart' }]}>Quickstart</a>
+			<a href="/docs/cli" class:list={[{ active: path === '/docs/cli' }]}>CLI</a>
+		</nav>
+	</div>
+</header>
+
+<style>
+	.site-header {
+		position: sticky;
+		top: 0;
+		z-index: 50;
+		background: rgba(13, 17, 23, 0.78);
+		backdrop-filter: blur(12px);
+		-webkit-backdrop-filter: blur(12px);
+		border-bottom: 1px solid var(--border);
+	}
+	.bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1rem;
+		height: 60px;
+	}
+	.brand {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.55rem;
+		color: var(--fg);
+		font-weight: 700;
+		font-size: 1.1rem;
+		letter-spacing: -0.01em;
+	}
+	.brand:hover {
+		color: var(--accent);
+	}
+	.mark {
+		font-size: 1.35rem;
+		line-height: 1;
+	}
+	.wordmark {
+		font-family: var(--font-mono);
+	}
+	.nav {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+	}
+	.nav a {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		color: var(--fg-muted);
+		padding: 0.5rem 0.85rem;
+		border-radius: 8px;
+		font-size: 0.95rem;
+		font-weight: 500;
+	}
+	.nav a:hover {
+		color: var(--fg);
+		background: var(--bg-soft);
+	}
+	.nav a.active {
+		color: var(--accent);
+	}
+	.github svg {
+		opacity: 0.7;
+	}
+	@media (max-width: 600px) {
+		.nav a {
+			padding: 0.5rem 0.55rem;
+			font-size: 0.9rem;
+		}
+		.nav .github {
+			display: none;
+		}
+	}
+</style>

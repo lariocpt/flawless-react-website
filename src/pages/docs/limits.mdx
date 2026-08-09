@@ -1,0 +1,107 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Limits and troubleshooting
+description: What the static analyser recognises and what it deliberately does not, plus fixes for the errors you are most likely to hit
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+
+## Limits and assumptions
+
+The static analyser is deliberately narrow — it favours predictability over cleverness.
+
+- **Component shape.** A `const X: React.FC<Props> = (props) => …` declaration, or an `export default function X(props: Props) { … }`. Other forms — HOCs, decorators, dynamic component factories — are not detected.
+- **Props type.** Only types declared *in the same file* are resolved. An imported type pushes the prop into `unresolvedProps`; you then either pass `--props '{…}'` or edit the generated spec's `DEFAULTS` constant.
+- **Type to default value.** Primitives, arrays (always `[]`), inline object types (recursive), and literals are mapped. **Unions of non-literals**, intersections, and generics fall into `unresolvedProps`.
+- **Variant matrix.** Only union-of-literal props produce variants. The matrix is pairwise — one prop varied at a time around the defaults, not the full cartesian product.
+- **Children.** Only locally-imported components (relative paths) are walked. Anything from `node_modules`, or a TypeScript path alias that resolves into it, is skipped. Depth defaults to 3 and the walk is cycle-guarded.
+- **Hooks.** Detected by the name pattern `/^use[A-Z]/`, so custom hooks show up too. Hook detection is informational: it appears in spec output but does not yet drive different rerender strategies.
+
+## Troubleshooting
+
+### "could not locate a React component in …"
+
+The analyser did not recognise the export shape. Refactor to a `const X: React.FC<Props> = …` declaration, or pass `--include-children=false --depth=0` and run the tool against the actual component file directly.
+
+### `unresolvedProps` warning
+
+One or more props use an imported type, a generic, or a non-literal union. Either:
+
+- Re-run with `--props '{"propName": "value", …}'`, or
+- Edit the generated `tests/<Component>.profile.spec.ts` and add the missing fields to the `DEFAULTS` constant.
+
+### Generated suite fails on `bun install` with a peer-dep mismatch
+
+The suite pins `react` and `react-dom` to `^18.3.0`. If your parent project is on React 17 or React 19, edit the generated `package.json` to match before `bun install`, then re-run `bun install`.
+
+### Playwright cannot find a browser
+
+The first time you run a generated suite you may need:
+
+```bash
+bunx playwright install chromium
+```
+
+If a Playwright upgrade pulled in a new browser version, run the same command again.
+
+### `window.__profile` is undefined inside tests
+
+The host bundle did not load. Check the Playwright stderr — `bun host/server.ts` should print `host listening on http://127.0.0.1:5173`. If it does not, change into the suite directory and run the host directly to surface the build error:
+
+```bash
+bun host/server.ts
+```
+
+### The component reads `useSelector` or `useContext` and throws "could not find … in the context"
+
+Pass `--provider <file>` pointing at a `.tsx` that default-exports a wrapper component containing your Redux Provider, QueryClientProvider, ThemeProvider, and so on. The host wraps every mounted component in it.
+
+### The component fetches `/api/...` and gets a 404
+
+Either pass `--api <openapi.json|yaml>` to scaffold a mock server, or — when `--api` was already passed — edit the generated `mock/routes.ts` after the fact to add the missing route. Without `--api` no mock server is generated, and `/api/*` requests return 404 from the host server.
+
+### Mock server says `YAML parsing requires Bun >= 1.2`
+
+Either upgrade Bun, or convert the spec to JSON and pass the JSON file to `--api`:
+
+```bash
+bunx js-yaml api.yaml > api.json
+```
+
+## "biome executable not found"
+
+This is the one failure that is specific to the standalone binary, so it is worth understanding on its own.
+
+Three of the five tasks — `perf-harness`, `unit-browser` and `perf-static` — are self-contained and work anywhere. The other two, `a11y` and `react-rules`, are Biome-driven: they write a temporary rule config and shell out to a `biome` executable. The binary is a self-contained Bun build, but it cannot carry biome inside itself, so that executable has to be found on the machine.
+
+When it is not, the task fails with:
+
+```
+biome executable not found. Looked in this package's node_modules, /your/project/node_modules/.bin/biome, and on PATH.
+  Source install:   bun install
+  Compiled binary:  install biome in the project you are scanning (bun add -d @biomejs/biome) or put it on PATH.
+```
+
+The failure is scoped to that task. Any other tasks you selected in the same run still execute, and the run's summary table reports the biome-backed one as failed.
+
+### The three places it looks
+
+In order:
+
+1. **This package's own `node_modules/.bin/biome`.** This is the source-install case, and it stays first so that a source install always uses the biome version pinned in the package's own dependencies.
+2. **`<cwd>/node_modules/.bin/biome`** — the project you are scanning. Any React codebase that already lints with biome satisfies this for free.
+3. **Anything named `biome` on `PATH`** — a global install, or a distribution package.
+
+The binary only ever reaches steps 2 and 3. It is produced with `bun build --compile`, and inside a compiled binary `import.meta.url` points into Bun's virtual filesystem, so the walk up to the package root finds nothing on disk and falls back to the current working directory. Step 1 therefore never resolves there. Checking the extra locations is what makes the binary useful whenever biome is reachable at all, while leaving the source install behaving exactly as before.
+
+### The two fixes
+
+**Install biome in the project you are scanning.** This satisfies candidate 2 and keeps the binary as your install channel.
+
+```bash
+bun add -d @biomejs/biome
+```
+
+**Or use the source package.** It carries `@biomejs/biome` as a real dependency, so all five tasks work with no further setup. It needs Bun >= 1.1 on the target machine.
+
+<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Install the source package" />

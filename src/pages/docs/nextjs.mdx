@@ -1,0 +1,236 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Next.js mode
+description: How --nextjs detects your router, derives MSW handlers and a swagger.json from your API routes, and writes the suite into your existing project
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+
+## What `--nextjs` does
+
+Pass `--nextjs [<path>]` to target an existing Next.js project. Pass nothing — or `--nextjs .` — to use the current directory.
+
+```bash
+cd my-next-app
+bunx flawless-react app/page.tsx --nextjs
+```
+
+Outside this mode, flawless writes a standalone suite with its own `package.json`, its own `tsconfig.json`, and its own copy of every dependency. That makes sense when the suite lives beside a component library. It makes much less sense inside a Next.js app, which already has React, a TypeScript config, and a dependency tree you would rather not duplicate.
+
+So in `--nextjs` mode flawless stops behaving like a generator of new projects and behaves like a generator of files *for your project*. It:
+
+- detects whether you are on the App Router or the Pages Router, and which directory is the router root
+- picks up `app/layout.tsx` (or `pages/_app.tsx`) as the test-time provider, so context and CSS carry through to mounted components
+- walks your API routes and emits `swagger.json` plus a set of MSW handlers
+- wires those handlers into both the Playwright host bundle and Vitest's setup file
+- writes everything under `<nextRoot>/flawless/`, with no inner `package.json` and no inner `tsconfig.json`
+- merges the dependencies the generated suite needs into your project's `package.json` as `devDependencies`, and adds `flawless:*` scripts
+- appends the generated output paths to your `.gitignore`
+
+Before any of that runs, the directory has to look like a Next.js project: flawless requires a `next.config.{ts,js,mjs,cjs}`, or a `next` entry under `dependencies` or `devDependencies` in `package.json`. If neither is there it exits rather than guessing.
+
+## Router detection
+
+Four directories are checked, in this order, and the first hit decides both the router style and the router root:
+
+| Directory | Router |
+| --- | --- |
+| `app/` | App Router |
+| `src/app/` | App Router |
+| `pages/` | Pages Router |
+| `src/pages/` | Pages Router |
+
+If none of them exist, flawless stops with an error — there is nothing to walk.
+
+The detection result is printed before the tasks run, so you can confirm it matched what you expected:
+
+```
+nextjs: /home/you/my-next-app (router=app, api-routes=7, app-resolver=/home/you/my-next-app/app/layout.tsx)
+```
+
+If you do not pass an entry path or glob at all, flawless looks for `components/`, `src/components/`, or `app/components/` and defaults the entry to `<that dir>/**/*.tsx`, printing which one it chose.
+
+## The app resolver
+
+A component pulled out of a Next.js app and mounted bare will usually render wrong or not at all: it expects the providers, the fonts, and the global stylesheet that the root layout sets up. The app resolver is flawless's answer to that. It is the same mechanism as `--provider` — a file that default-exports a wrapper component — but detected for you instead of passed by hand.
+
+Detection depends on the router:
+
+- **App Router** — the first of `layout.tsx`, `layout.jsx`, `layout.ts`, `layout.js` found at the router root.
+- **Pages Router** — the first of `_app.tsx`, `_app.jsx`, `_app.ts`, `_app.js` found at the router root.
+
+If neither exists, no resolver is set and components mount bare.
+
+Override the detection with `--app-resolver <file>` when your real wrapper lives somewhere else — a custom `Providers.tsx`, say, or a test-only variant that stubs out authentication:
+
+```bash
+bunx flawless-react app/page.tsx --nextjs --app-resolver ./test/FlawlessProviders.tsx
+```
+
+`--app-resolver` and `--provider` are aliases in this mode. If you pass both, `--provider` wins. Whichever you pass takes precedence over the auto-detected file.
+
+## API routes become handlers
+
+Components that fetch need something to fetch from. Rather than asking you to write mocks, flawless reads the API routes you already have and derives them.
+
+**App Router.** It globs `app/api/**/route.{ts,tsx,js,jsx,mjs}` and parses each file with the TypeScript compiler API, collecting exported identifiers that name an HTTP method — `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD` — in either the `export const GET = …` or the `export function GET() { … }` form. A route file exporting none of those is skipped.
+
+**Pages Router.** It globs `pages/api/**/*.{ts,tsx,js,jsx,mjs}`. A Pages handler is a single default export that switches on `req.method` internally, so there is nothing to read statically; flawless assumes `GET`, `POST`, `PUT`, `DELETE`, and `PATCH` for every file. A trailing `index` segment is dropped, so `pages/api/users/index.ts` becomes `/api/users`.
+
+Dynamic segments are translated on the way out:
+
+| Next.js segment | OpenAPI path | MSW path |
+| --- | --- | --- |
+| `[id]` | `{id}` | `:id` |
+| `[...slug]` | `{slug}` | `:slug` |
+| `[[...slug]]` | `{slug}` | `:slug` |
+| `(marketing)` | removed | removed |
+
+Catch-all segments collapse to a single path parameter, which is lossy but keeps the emitted spec valid. Route groups are a filesystem convention only and never appear in the URL, so they are dropped.
+
+### `swagger.json`
+
+The route list is turned into an OpenAPI 3.0.0 document at `<nextRoot>/flawless/swagger.json` — one operation per method per path, each with a `200` response carrying an empty `application/json` example. It is a readable inventory of your API surface derived from the code rather than maintained alongside it, and it is regenerated on every run.
+
+### `mocks/handlers.ts`
+
+The same route list produces one MSW handler per method per path:
+
+```ts
+import { http, HttpResponse } from "msw";
+
+export const handlers = [
+  http.get("/api/users", () => HttpResponse.json({})),
+  http.post("/api/users", () => HttpResponse.json({})),
+  http.get("/api/users/:id", () => HttpResponse.json({})),
+];
+```
+
+The empty bodies are the honest default: static analysis of a route handler can tell you the method and the path, but not what the response looks like. Replacing `HttpResponse.json({})` with a realistic fixture is the one piece of work the tool cannot do for you — and once `handlers.ts` exists, flawless will not overwrite it, so your fixtures survive every later run.
+
+Three more files land next to it, also written only when absent:
+
+- `mocks/browser.ts` — `setupWorker(...handlers)` plus a `startMockWorker()` helper, configured with `onUnhandledRequest: "bypass"`.
+- `mocks/node.ts` — `setupServer(...handlers)` for Node-side fetches.
+- `mocks/README.md` — a short note on how the layers fit together.
+
+### Where the handlers get wired in
+
+Both generated test layers pick the handlers up, so the same mocks intercept `fetch` wherever it is called:
+
+- The perf harness's `host/main.tsx` imports `startMockWorker` from `../mocks/browser.ts` and boots the service worker before the first mount, so `fetch` from inside a Playwright-driven page is intercepted.
+- The unit suite emits a `setup.ts` that imports `server` from `./mocks/node.ts`, and the Vitest config lists it under `setupFiles`, so `fetch` from a jsdom render is intercepted too.
+
+## Pulling a live spec with `--swagger-url`
+
+Static analysis gives you paths and methods. It cannot give you response shapes. If your project already serves an OpenAPI document — `next-swagger-doc` is the common way to get one — flawless would rather read that.
+
+So unless you opt out, it tries. Before emitting anything it fetches `http://localhost:3000/api/docs` with a 1.5 second timeout and an `accept: application/json` header. The short timeout is the point: when your dev server is not running, the attempt costs almost nothing and the run carries on with the static output.
+
+The response has to be a success status *and* have a JSON content type to be used. When it is:
+
+- routes whose path matches a statically-discovered route have their response bodies filled in and any extra methods merged in
+- paths that only the live spec knows about are appended to the route list
+- `swagger.json` is written verbatim from the fetched spec rather than derived from the AST
+- `mocks/handlers.ts`, if it does not exist yet, gets real bodies instead of `{}`
+
+Point it at a different URL when your docs endpoint is not at the default:
+
+```bash
+bunx flawless-react app/page.tsx --nextjs --swagger-url http://localhost:4000/openapi.json
+```
+
+Failure is handled differently depending on how the URL was chosen. The automatic attempt fails silently — it is speculative, and a warning on every run in a project that has no docs endpoint would be noise. An explicit `--swagger-url` that fails prints the reason to stderr and falls back to the static output:
+
+```
+nextjs: live spec at http://localhost:4000/openapi.json unavailable (HTTP 502); using static AST output
+```
+
+To skip the automatic attempt entirely, pass the escape hatch:
+
+```bash
+bunx flawless-react app/page.tsx --nextjs --swagger-url=off
+```
+
+Worth doing in CI, or anywhere something else is listening on port 3000.
+
+## What lands in your project
+
+### The output directory
+
+Unless you pass `--out`, everything goes to `<nextRoot>/flawless/`:
+
+```
+my-next-app/
+├── app/
+├── package.json          # merged: devDependencies + flawless:* scripts
+├── .gitignore            # appended: generated output paths
+└── flawless/
+    ├── swagger.json      # regenerated every run
+    ├── setup.ts          # Vitest setup; starts the MSW server
+    ├── mocks/
+    │   ├── handlers.ts   # yours to edit; never overwritten
+    │   ├── browser.ts
+    │   ├── node.ts
+    │   └── README.md
+    ├── host/
+    ├── tests/
+    ├── unit/
+    ├── browser/
+    └── reports/
+```
+
+There is no `flawless/package.json` and no `flawless/tsconfig.json`. That is the deliberate difference from standalone mode: the suite runs on your project's dependencies and your project's TypeScript config.
+
+### `package.json`
+
+The dependencies the generated suite needs are merged into your project's `devDependencies`, and three scripts are added so you can run each layer from the project root:
+
+```json
+{
+  "devDependencies": {
+    "msw": "^2.6.0",
+    "vitest": "^2.1.0",
+    "jsdom": "^25.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.5.0",
+    "@testing-library/jest-dom": "^6.5.0",
+    "@playwright/test": "^1.49.0",
+    "react-scan": "^0.4.3"
+  },
+  "scripts": {
+    "flawless:unit": "vitest run --root flawless",
+    "flawless:perf": "playwright test --config flawless/playwright.config.ts flawless/tests",
+    "flawless:browser": "playwright test --config flawless/browser/playwright.config.ts"
+  }
+}
+```
+
+The script paths are written relative to the project root, so they follow `--out` if you moved the output directory. Merging is a shallow overwrite of those specific keys — anything else in your `package.json` is left alone.
+
+### `.gitignore`
+
+Five entries are appended, under a comment marking where they came from:
+
+```
+# flawless-react — generated reports + sidecars
+flawless/reports/
+flawless/heaps/
+flawless/playwright-report/
+flawless/node_modules/
+*.flawless.json
+```
+
+Only entries not already present are added, so re-running does not accumulate duplicates. The generated tests, host, and mocks are *not* ignored — they are meant to be committed and edited, and `*.flawless.json` covers the per-component sidecar summaries that get dropped next to your source files.
+
+## Which install channel to use
+
+`--nextjs` mode works from either channel, but the task set you choose can matter. `perf-harness`, `unit-browser`, and `perf-static` run anywhere. `a11y` and `react-rules` shell out to biome, which the standalone binary cannot carry inside itself — it looks for `node_modules/.bin/biome` in the project being scanned, then on `PATH`.
+
+A Next.js project that already lints with biome satisfies that for free. If yours does not, either add biome to it (`bun add -d @biomejs/biome`), or use the source package, which carries biome as a real dependency and needs no further setup:
+
+<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Install the source package" />
+
+The standalone binary needs no Bun on the target machine at all:
+
+<InstallBlock />

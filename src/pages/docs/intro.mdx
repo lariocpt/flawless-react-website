@@ -1,0 +1,98 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Intro
+description: What flawless-react is — point it at a component or a glob, pick which checks to run, and get back a runnable suite plus file-and-line findings
+---
+
+import InstallBlock from '../../components/InstallBlock.astro';
+
+## What it is
+
+`flawless-react` is a multi-task quality kit for React components. You point it at a `.tsx` file or a glob, pick which of five tasks to run, and it gives back a runnable Playwright + Vitest suite, an accessibility scan and a React correctness scan, with a file, line and column for every finding.
+
+The distinction worth holding on to is that the output is not a report you then have to act on by hand. Two of the tasks write test code you run, commit and edit. The other three write findings, and those findings are pinned to exact source positions rather than described in prose. A small `<Component>.flawless.json` is dropped next to each source file so issues surface where the code lives.
+
+Every file matched by the positional becomes an entry component in its own right, and each one runs against every selected task:
+
+```bash
+flawless-react src/Dashboard.tsx
+flawless-react "src/**/*.tsx"
+```
+
+If the positional resolves to an existing path it is used directly; otherwise it is treated as a glob relative to the working directory.
+
+## Why it exists
+
+Wiring up a Playwright + `<Profiler>` + react-scan harness for a non-trivial component takes a couple of hours of fiddly boilerplate: bundle the component for the browser, host it, expose a JS API to drive renders, write the test scaffolding, define budgets, hand-pick prop variations, polyfill Node globals for CJS dependencies, set up provider context, mock the backend. None of that work is interesting, and none of it is where the bugs are.
+
+The tool itself is a thin scaffolder. The intelligence is the static analysis that decides what to import, what props to vary and which children to walk into. It reads the component's type signature, discovers child components by walking the JSX — locally-imported ones only, to a bounded depth, cycle-guarded — and produces the scaffolding mechanically. You get a runnable suite in seconds, and from there you edit it like normal test code.
+
+Nothing is measured by the CLI itself. Runtime numbers come from React's built-in `<Profiler>` for per-component `renderCount` and `renderTime`, from react-scan for unnecessary rerenders, and from Chrome DevTools Protocol heap snapshots for retention. The CLI never imports React or Playwright and never boots a server; it only reads and writes files.
+
+## Two kinds of task
+
+The five task ids are `perf-harness`, `unit-browser`, `perf-static`, `a11y` and `react-rules`. They split into tasks that scaffold and tasks that scan.
+
+### Scaffolding tasks — they write code you own
+
+- **`perf-harness`** — a Playwright + `<Profiler>` + react-scan performance suite: a host bundle that mounts your components, one spec file per analysed component, and a `budgets.json` of per-component mount and update ceilings.
+- **`unit-browser`** — Vitest + `@testing-library/react` unit tests, plus Playwright functional browser specs.
+
+Both write into the output directory (`./.flawless` by default), each into its own slice of it. What lands there is ordinary test code: it does not import `flawless-react`, and it runs without the tool present.
+
+### Scanning tasks — they report and change nothing
+
+- **`perf-static`** — reads the parsed component tree and flags rerender risks: a component that renders three or more child components while using none of `useMemo`, `useCallback`, `memo` or `useRef`, and props the analyser could not synthesise a default for (the generated tests would pass `undefined`).
+- **`a11y`** — accessibility and web-standards rules over the whole targeted tree, run through biome.
+- **`react-rules`** — a curated set of functionally important React and hooks rules, also through biome: `useExhaustiveDependencies`, `useHookAtTopLevel`, `useJsxKeyInIterable`, `noArrayIndexKey` and friends. It runs against a config the tool generates, so the project's own `biome.json` is bypassed and the result does not depend on how that project happens to be linted.
+
+Each scanning task writes a JSON report per component under `reports/` in the output directory. Findings also print to stdout grouped by file, and every run ends with a per-task summary table and a `reports/summary.json`.
+
+These three read your source and never rewrite it. There is no fix mode, and nothing outside the output directory changes except the inline `<Component>.flawless.json` summaries, which you can turn off.
+
+## The suite belongs to you
+
+Once the files are written, the tool's job is done. Commit the suite, lint it, put it in CI, pin its dependencies — treat it as a fresh project. The generated budgets warn rather than fail on the first runs, because you do not yet know what "fast enough" means for your component; turning those warnings into assertions once you have a baseline is a one-line edit per spec.
+
+The one thing to avoid is regenerating over a suite you have started shaping. The tool is the source of *initial* truth and you are the source of *evolved* truth, so hand-added variants, custom interactions and replaced fixtures will not survive a forced re-run.
+
+## The interactive menu
+
+Run the binary with no positional argument in a terminal and it prompts instead of failing:
+
+```bash
+flawless-react
+```
+
+Three questions, in order:
+
+1. **Component path or glob.** Pre-filled with a detected default — `src/App.tsx`, `src/index.tsx` or `src/main.tsx` if one of them exists, otherwise the single `.tsx` file in `src/`, or `src/*.tsx` when there are several.
+2. **Output directory.** Defaults to `./.flawless`.
+3. **Which tasks to run.** A checkbox list of all five: space toggles, enter confirms. `perf-harness` and `perf-static` are selected by default.
+
+If a scaffolding task ran and nothing failed, it then offers to run the tests it produced. Cancelling at any prompt exits without writing anything.
+
+The menu only appears when stdin is a TTY. In a script or CI, or with the flag that disables prompting, pass the positional and the task list explicitly instead — see the [CLI reference](/docs/cli) for the flags.
+
+## Installing
+
+Two channels, and unlike most tools they genuinely ship different things. Pick by whether the target machine has Bun.
+
+**Standalone binary** — nothing to install alongside it:
+
+<InstallBlock />
+
+`perf-harness`, `unit-browser` and `perf-static` work anywhere with this. The binary is self-contained Bun, but it cannot carry biome inside itself, so `a11y` and `react-rules` shell out to it: they look for biome in the project being scanned (`node_modules/.bin/biome`), then on `PATH`. Any React codebase that already lints with biome satisfies that for free.
+
+**Source package** — needs Bun 1.1 or newer at runtime, and every task works with no further setup because `@biomejs/biome` comes along as a real dependency:
+
+<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Source install" />
+
+The [install page](/docs/install) covers both channels in full.
+
+## Where to go next
+
+- [Quickstart](/docs/quickstart) — generate a suite and run it.
+- [CLI reference](/docs/cli) — every flag, with defaults.
+- [What gets generated](/docs/generated-suite) — the emitted suite, file by file.
+- [Architecture](/docs/architecture) — how the analyse and scaffold phases fit together, and what is intentionally absent.
