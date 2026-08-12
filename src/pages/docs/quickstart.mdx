@@ -25,7 +25,7 @@ inside itself. `perf-harness`, `unit-browser` and `perf-static` work anywhere; `
 `react-rules` shell out to biome and look for it in the project you are scanning
 (`node_modules/.bin/biome`) and then on `PATH`. Any React codebase that already lints with
 biome satisfies that for free — otherwise run `bun add -d @biomejs/biome` in that project, or
-use the source package. See [Install](/docs/install) for the full comparison.
+use the source package. See [Install](/docs/install/) for the full comparison.
 
 With the source package you can also skip the install entirely and use `bunx flawless-react`,
 which is what the commands below do.
@@ -144,8 +144,8 @@ retained.
 
 Budgets are warn-only on the first run — you measure before you know what "fast enough" means
 for a component. Once the suite is generated it belongs to you: there is no regeneration step
-that overwrites your edits. [What gets generated](/docs/generated-suite) walks through each
-emitted file, and [Extending a suite](/docs/extending) covers turning the warnings into hard
+that overwrites your edits. [What gets generated](/docs/generated-suite/) walks through each
+emitted file, and [Extending a suite](/docs/extending/) covers turning the warnings into hard
 assertions.
 
 If `unit-browser` was part of the run, the suite's `package.json` also carries `test:unit`,
@@ -164,4 +164,4 @@ Task ids are validated, so a typo fails the run with the list of valid ids rathe
 something unexpected.
 
 Everything else — `--depth`, `--variants`, `--props`, `--provider`, `--api`, `--report`,
-`--run-tests`, `--json` and the Next.js flags — is in the [CLI reference](/docs/cli).
+`--run-tests`, `--json` and the Next.js flags — is in the [CLI reference](/docs/cli/).
