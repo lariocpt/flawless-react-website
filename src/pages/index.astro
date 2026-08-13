@@ -9,11 +9,11 @@ import FeatureCard from '../components/FeatureCard.astro';
 
 	<section class="section">
 		<div class="container">
-			<span class="eyebrow">The five tasks</span>
+			<span class="eyebrow">The seven tasks</span>
 			<h2>Scaffolders and scanners, pick what you need.</h2>
 			<p class="section-lede">
-				Run them all, or name a subset with <code>--tasks</code>. Three write a runnable
-				suite you own; two report findings with <code>file:line</code> and change nothing.
+				Run them all, or name a subset with <code>--tasks</code>. Four write a runnable
+				suite you own; three report findings with <code>file:line</code> and change nothing.
 			</p>
 			<div class="grid">
 				<FeatureCard icon="⏱️" title="perf-harness">
@@ -44,6 +44,18 @@ import FeatureCard from '../components/FeatureCard.astro';
 					<p>
 						Biome-driven React correctness rules: array-index keys, conditional hooks,
 						missing dependencies.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="🌐" title="e2e">
+					<p>
+						One Playwright spec per app-router page against your real dev server: the
+						route loads clean, then interactions taken from its own component tree.
+					</p>
+				</FeatureCard>
+				<FeatureCard icon="📈" title="load">
+					<p>
+						crust load pipes per route and per API operation. First run writes
+						baselines, later runs compare against them.
 					</p>
 				</FeatureCard>
 				<FeatureCard icon="△" title="Next.js mode">

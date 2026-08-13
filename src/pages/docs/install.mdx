@@ -9,7 +9,7 @@ import InstallBlock from '../../components/InstallBlock.astro';
 ## Two channels
 
 There are two ways to install `flawless-react`, both served from the LAN. They ship different
-things, so pick by whether the target machine has Bun and by which of the five tasks you need.
+things, so pick by whether the target machine has Bun and by which of the seven tasks you need.
 
 |  | Standalone binary | Source package |
 | --- | --- | --- |
@@ -47,7 +47,7 @@ bunx flawless-react ./src/Dashboard.tsx
 ## Why the binary cannot carry biome
 
 The binary is self-contained Bun, which means it has no `node_modules` tree at runtime — there
-is nowhere for a bundled biome to live. Three of the five tasks do not care: `perf-harness`,
+is nowhere for a bundled biome to live. Five of the seven tasks do not care: `perf-harness`,
 `unit-browser` and `perf-static` are pure analysis and scaffolding, and they work anywhere.
 
 The other two, `a11y` and `react-rules`, shell out to biome. They resolve it from the project
@@ -70,6 +70,6 @@ flawless-react --version
 flawless-react --help
 ```
 
-`--version` prints the installed version. `--help` lists every flag and the five task ids —
+`--version` prints the installed version. `--help` lists every flag and the seven task ids —
 `perf-harness`, `unit-browser`, `perf-static`, `a11y`, `react-rules` — which are the exact
 strings `--tasks` accepts. If you went the one-shot route, prefix both with `bunx`.

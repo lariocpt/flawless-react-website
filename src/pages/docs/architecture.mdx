@@ -55,7 +55,7 @@ If neither matches, the function throws with a descriptive message. The recognis
 
 ### extractProps.ts
 
-Walks the resolved `InterfaceDeclaration` or `TypeAliasDeclaration` — same-file only, imported types are not chased. For each `PropertySignature`, the type node is mapped:
+Walks the resolved `InterfaceDeclaration` or `TypeAliasDeclaration`. Same-file types resolve directly; imported ones are chased two hops through `resolveModule`, with a parse cache so a shadcn-style layer does not re-read the same file dozens of times. For each `PropertySignature`, the type node is mapped:
 
 | Source type | Default | Variants |
 | --- | --- | --- |

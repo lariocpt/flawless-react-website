@@ -1,7 +1,7 @@
 ---
 layout: ../../layouts/DocsLayout.astro
 title: CLI reference
-description: Every flag flawless-react accepts, the five task ids you can select, and what each task writes
+description: Every flag flawless-react accepts, the seven task ids you can select, and what each task writes
 ---
 
 import InstallBlock from '../../components/InstallBlock.astro';
@@ -17,7 +17,7 @@ The positional is a `.tsx` file path or a glob such as `"src/**/*.tsx"`. Each ma
 
 Resolution is deliberately simple: if the positional resolves to a path that exists, that single file is the entry. Otherwise it is treated as a glob relative to the current directory — and a value with no glob characters that does not exist on disk matches nothing, so the run stops with `no files matched`.
 
-Run with no positional in a TTY and you get the interactive menu instead: a prompt for the path or glob, a prompt for the output directory, and a checkbox list of the five tasks with `perf-harness` and `perf-static` preselected. `--no-interactive` disables that path entirely, in which case a positional and `--tasks` are required.
+Run with no positional in a TTY and you get the interactive menu instead: a prompt for the path or glob, a prompt for the output directory, and a checkbox list of the seven tasks with `perf-harness` and `perf-static` preselected. `--no-interactive` disables that path entirely, in which case a positional and `--tasks` are required.
 
 ## Options
 
@@ -47,7 +47,7 @@ Every flag that takes a value accepts both `--flag value` and `--flag=value`. An
 
 ## Tasks
 
-The five task ids are exactly these. Anything else — including plausible-looking transpositions such as `static-perf` — is rejected by `--tasks`.
+The seven task ids are exactly these. Anything else — including plausible-looking transpositions such as `static-perf` — is rejected by `--tasks`.
 
 | Task id | What it emits or reports |
 | --- | --- |
@@ -56,18 +56,20 @@ The five task ids are exactly these. Anything else — including plausible-looki
 | `perf-static` | Reads the parsed tree — no browser, no build — and writes `reports/<Component>.perf-static.json`. Two rules fire: `perf/no-memoisation-with-children`, when a component renders three or more child components and uses none of `useMemo` / `useCallback` / `memo` / `useRef`, so every parent rerender rerenders all of them; and `perf/unresolved-prop`, when no default could be synthesised for a prop and the generated tests will pass `undefined`. |
 | `a11y` | Runs biome's accessibility rules over the entry file and every walked child, then writes `reports/<Component>.a11y.json`. Findings are filtered to the `lint/a11y` category, so correctness rules do not leak into an accessibility report, and each one carries file, line, column, rule, and severity. |
 | `react-rules` | Runs a curated set of bug-catching React and hooks rules through biome — `useExhaustiveDependencies`, `useHookAtTopLevel`, `useJsxKeyInIterable`, `noArrayIndexKey`, `noChildrenProp`, `noVoidElementsWithChildren` and friends — and writes `reports/<Component>.react-rules.json`. The config is supplied by flawless-react, so the project's own `biome.json` is bypassed and the rule set is the same on every machine. |
+| `e2e` | Emits `e2e/` — a Playwright config pointed at the target's real dev server (overridable with `FLAWLESS_E2E_BASEURL`), a `global-setup.ts` stub for login, and one spec per app-router page asserting the route loads with no console or page errors, plus up to three interactions harvested from that page's component tree. Next.js mode only. |
+| `load` | Emits `load/` — crust pipes per route and per API operation, run with `bun run flawless:load`. Baselines are written on the first run and compared on later ones. |
 
 Selecting nothing leaves the run with `perf-harness` alone. Task order on the command line is the order they run in, and each task's findings are printed as they complete.
 
 ### Task availability and biome
 
-`perf-harness`, `unit-browser` and `perf-static` are self-contained and work anywhere. `a11y` and `react-rules` shell out to biome, which the standalone binary cannot carry inside itself, so it is looked for in three places in order: this package's own `node_modules/.bin/biome`, then `node_modules/.bin/biome` in the project being scanned, then `biome` on `PATH`. If none of the three hits, both tasks fail with a message naming the paths that were tried.
+`perf-harness`, `unit-browser`, `perf-static`, `e2e` and `load` are self-contained and work anywhere. `a11y` and `react-rules` shell out to biome, which the standalone binary cannot carry inside itself, so it is looked for in three places in order: this package's own `node_modules/.bin/biome`, then `node_modules/.bin/biome` in the project being scanned, then `biome` on `PATH`. If none of the three hits, both tasks fail with a message naming the paths that were tried.
 
 Any React codebase that already lints with biome satisfies this for free. Otherwise, add it to the project you are scanning:
 
 <InstallBlock command="bun add -d @biomejs/biome" label="Add biome" />
 
-Or install flawless-react from the source package, which carries `@biomejs/biome` as a real dependency so all five tasks work with no further setup. That channel needs Bun >= 1.1 on the machine running it.
+Or install flawless-react from the source package, which carries `@biomejs/biome` as a real dependency so all seven tasks work with no further setup. That channel needs Bun >= 1.1 on the machine running it.
 
 <InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Install" />
 

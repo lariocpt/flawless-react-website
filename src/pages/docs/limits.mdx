@@ -11,10 +11,10 @@ import InstallBlock from '../../components/InstallBlock.astro';
 The static analyser is deliberately narrow — it favours predictability over cleverness.
 
 - **Component shape.** A `const X: React.FC<Props> = (props) => …` declaration, or an `export default function X(props: Props) { … }`. Other forms — HOCs, decorators, dynamic component factories — are not detected.
-- **Props type.** Only types declared *in the same file* are resolved. An imported type pushes the prop into `unresolvedProps`; you then either pass `--props '{…}'` or edit the generated spec's `DEFAULTS` constant.
-- **Type to default value.** Primitives, arrays (always `[]`), inline object types (recursive), and literals are mapped. **Unions of non-literals**, intersections, and generics fall into `unresolvedProps`.
+- **Props type.** Same-file types resolve directly, and imported ones are chased two hops. Intersections (`A & B`), host-element props (`ComponentProps<"div">`), `ComponentProps<typeof LocalX>` and cva tables (`VariantProps<typeof buttonVariants>`) all resolve. What does not: unions of non-literals, `Omit`/`Pick`/`Partial`, `z.infer` aliases, and anything in `node_modules`. Those push the prop into `unresolvedProps` and the type that defeated it into `unresolvedTypes`; you then either pass `--props '{…}'` or edit the generated spec's `DEFAULTS` constant.
+- **Type to default value.** Primitives, arrays (always `[]`), inline object types (recursive), and literals are mapped. A prop no type resolves can still be recovered when the body uses it to index a same-file object literal with literal keys — those keys *are* the union, written out.
 - **Variant matrix.** Only union-of-literal props produce variants. The matrix is pairwise — one prop varied at a time around the defaults, not the full cartesian product.
-- **Children.** Only locally-imported components (relative paths) are walked. Anything from `node_modules`, or a TypeScript path alias that resolves into it, is skipped. Depth defaults to 3 and the walk is cycle-guarded.
+- **Children.** Locally-imported components (relative paths **and** tsconfig `paths` aliases) are walked. Anything from `node_modules`, or a TypeScript path alias that resolves into it, is skipped. Depth defaults to 3 and the walk is cycle-guarded.
 - **Hooks.** Detected by the name pattern `/^use[A-Z]/`, so custom hooks show up too. Hook detection is informational: it appears in spec output but does not yet drive different rerender strategies.
 
 ## Troubleshooting
@@ -72,7 +72,7 @@ bunx js-yaml api.yaml > api.json
 
 This is the one failure that is specific to the standalone binary, so it is worth understanding on its own.
 
-Three of the five tasks — `perf-harness`, `unit-browser` and `perf-static` — are self-contained and work anywhere. The other two, `a11y` and `react-rules`, are Biome-driven: they write a temporary rule config and shell out to a `biome` executable. The binary is a self-contained Bun build, but it cannot carry biome inside itself, so that executable has to be found on the machine.
+Five of the seven tasks — `perf-harness`, `unit-browser`, `perf-static`, `e2e` and `load` — are self-contained and work anywhere. The other two, `a11y` and `react-rules`, are Biome-driven: they write a temporary rule config and shell out to a `biome` executable. The binary is a self-contained Bun build, but it cannot carry biome inside itself, so that executable has to be found on the machine.
 
 When it is not, the task fails with:
 
@@ -102,6 +102,6 @@ The binary only ever reaches steps 2 and 3. It is produced with `bun build --com
 bun add -d @biomejs/biome
 ```
 
-**Or use the source package.** It carries `@biomejs/biome` as a real dependency, so all five tasks work with no further setup. It needs Bun >= 1.1 on the target machine.
+**Or use the source package.** It carries `@biomejs/biome` as a real dependency, so all seven tasks work with no further setup. It needs Bun >= 1.1 on the target machine.
 
 <InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Install the source package" />

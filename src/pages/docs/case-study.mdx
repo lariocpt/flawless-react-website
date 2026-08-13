@@ -1,0 +1,211 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: 'Case study: a whole app'
+description: Running all seven tasks over 181 components of a real Next.js app — what the tool generated unaided, what it refused to guess, and what that cost to fix
+---
+
+Most tool demos pick one component. This is what happened when flawless-react was
+pointed at every component of a real Next.js 16 app and told to produce the
+fullest suite it could, with the rule that **nothing may be hand-written**. Where
+a spec was wrong, the generator was fixed rather than the spec.
+
+## The target
+
+| | |
+| --- | ---: |
+| Entry files | 97 |
+| Components found | 181 |
+| Files yielding no component at all | 2 |
+| App-router pages | 31 |
+
+The 181 matters more than the 97. A shadcn-style `ui/` layer puts many
+components in one file — `card.tsx` exports seven, `dropdown-menu.tsx` fifteen —
+so a file count understates the surface by roughly a factor of two. `--roots
+exported` is what makes each of them an entry in its own right.
+
+```bash
+flawless-react "src/**/*.tsx" \
+  --nextjs . --roots exported --colocate --api openapi.json \
+  --tasks perf-harness,unit-browser,perf-static,a11y,react-rules,e2e,load --force
+```
+
+## What it produced
+
+172 colocated spec files, 512 tests. Plus a browser profiling host covering 94
+components, 172 static performance reports, accessibility and React-correctness
+findings, 31 route e2e specs and 33 load pipes.
+
+Every one of those files came out of the command above. None was edited
+afterwards.
+
+## The number that actually mattered
+
+The first full sweep looked healthy — 427 passing tests — and was not.
+
+**68 of the 172 spec files contained no `expect()` at all.** They rendered a
+component and asserted nothing. The flagship case was `ui/button.tsx`: 65 lines,
+six tests, and two `void` statements present only to stop the linter complaining
+about unused variables.
+
+```tsx
+test("Button renders at defaults without crashing", () => {
+  renderTarget();
+  void screen;
+});
+
+describe("Button variants", () => {
+  for (const v of VARIANTS) {
+    test(`renders with ${JSON.stringify(v)}`, () => {
+      renderTarget(v);
+    });
+  }
+});
+```
+
+The cva extraction had worked perfectly — `VARIANTS` held the real variants read
+out of `buttonVariants`. There was simply nothing the generator knew how to
+assert about a component that renders no literal text of its own, which is the
+entire `ui/` layer.
+
+A green suite that proves nothing is worse than a red one, because it is
+believed.
+
+## What it took to fix
+
+The shortest description of the fix is that the tool had been describing the
+wrong render.
+
+`extractRootTag`, `extractStaticText` and `extractRenderMode` all read the **last
+`return`** in a component's body. For a component that opens
+
+```tsx
+const [open, setOpen] = useState(false);
+if (!open) return <button onClick={() => setOpen(true)}>Record payment</button>;
+```
+
+that is the expanded branch — so eight `getByText` assertions were written
+against copy behind a collapsed disclosure, and a `querySelector("#notes")` could
+only ever return `null`. Twelve failing tests in two files, all one cause.
+
+A new module answers two questions against the props a spec will actually pass:
+which JSX renders first, and whether a given node inside it is reached. It is a
+small interpreter over a closed set of expressions — identifiers, literals, `!`,
+`===`, numeric comparison, `&&`/`||`/`??`, `.length` — returning "unknown" for
+everything else, and unknown propagates.
+
+Its treatment of an undecidable guard is deliberately asymmetric:
+
+- **decidable** — follow it exactly; that is new evidence.
+- **undecidable, guard returns nothing** — fall through to the tail return, which
+  is what the code did before, and flag the result.
+- **undecidable, guard returns content** — no answer at all, because no single
+  render describes the component.
+
+Bailing in the middle case would have deleted working assertions from every
+component guarding on a prop whose type cannot be resolved. Those specs pass.
+
+With the right render identified, three signals became assertable: the root tag,
+`children` passthrough, and `className` passthrough — each only when the value
+**provably reaches the DOM**, not merely when the prop is accepted.
+
+## What it still refuses to assert
+
+The `className` rule only fires on a host element. `<SeparatorPrimitive
+className={cn(…)} />` hands the class to somebody else's component, and whether
+it reaches a DOM node is that component's business.
+
+The cva rule is the sharper example. The obvious assertion is that
+`variant="outline"` renders `border-input`. That is wrong often enough to matter:
+`cn()` is usually tailwind-merge, which **drops base classes a later variant
+conflicts with**. Rendering the real button at `size="sm"` produces markup with
+no `rounded-lg` on it, so a token assertion would fail against correct code. The
+tool also cannot know whether a given project's `cn` merges or merely
+concatenates.
+
+What the cva table does support is that two options whose class strings differ
+must render differently:
+
+```tsx
+test("Button: every `variant` option renders a distinct class list", () => {
+  const seen = ["default", "outline", "secondary", "ghost", "destructive", "link"]
+    .map((option) => {
+      const { container, unmount } = renderTarget({ variant: option });
+      const el = container.querySelector("[class]");
+      expect(el, `variant=${option} rendered no element carrying a class`).not.toBeNull();
+      const cls = el?.getAttribute("class") ?? "";
+      unmount();
+      return cls;
+    });
+  expect(new Set(seen).size, "two options rendered identical markup").toBe(seen.length);
+});
+```
+
+That proves the variant prop reaches the DOM and that every option is
+distinguishable, with no Tailwind knowledge at all. It bails when two options
+share a class string, because then they legitimately render the same.
+
+## Where it ended up
+
+| | Before | After |
+| --- | ---: | ---: |
+| Spec files | 172 | 172 |
+| Tests | 460 | 512 |
+| Failing | 33 | 0 |
+| Skipped, with a stated reason | 0 | 11 |
+| **Files asserting nothing** | **68** | **0** |
+
+The 11 skips are the honest residue, and each states its reason in the file: a
+disclosure trigger with no selectable handle, a component whose early return may
+render nothing until a prop it cannot synthesise is supplied, a data fixture
+whose shape could not be inferred.
+
+## The things that were not the analyser
+
+Roughly half the fixes were not inference at all. They are worth listing because
+they are the failure modes any generator of this kind will hit.
+
+- **A silently-passing selector.** The last-resort locator was
+  `container.querySelector("<TagName>")`. For a component tag that matches no
+  element, so `userEvent.click(null)` was a no-op and the test passed having
+  touched nothing. Four specs were green on that basis. The emitter now returns
+  nothing and the spec skips, naming what the element would need to be testable.
+- **A guessed ARIA role.** Any capitalised tag was assumed to expose
+  `role="button"`. `<DropdownMenuItem>` is `role="menuitem"`; `<SelectTrigger>` is
+  `combobox`. Every such query failed confidently and wrongly.
+- **A duplicate import identifier.** The profiling host keyed its registry on the
+  bare component name, and the app has two components called `CommentForm`. Two
+  identical identifiers in one module do not compile — and because the host is a
+  single bundle, that is not two broken specs, it is all 500.
+- **84 components that vanished.** The same host deduplicated on file path
+  alone, so a file exporting seven contributed one. Nothing said so.
+- **A test directory collision.** The profile specs were emitted into
+  `flawless/tests/`. Bun treats a positional argument to `bun test` as a path
+  *substring*, so the app's own `bun test tests` collected 94 Playwright specs
+  and turned a 207-pass suite into 207 pass / 94 fail. They now live in
+  `flawless/profile/`.
+- **Two Reacts.** `react-dom/server` was the one react-dom subpath the generated
+  vitest config did not pin, so the document-root specs rendered through a
+  different React instance than their components imported — every hook call
+  failing with `Cannot read properties of null`.
+
+## Reading it yourself
+
+Every run writes a `REPORT.md` that accounts for all of it:
+
+```text
+181 component(s) across 97 file(s).
+
+| Render mode   | Mountable in the browser host | Not mountable |
+| client        |                            94 |             7 |
+| compound-part |                             0 |            46 |
+| document-root |                             0 |             2 |
+| rsc           |                             0 |            32 |
+| total         |                            94 |            87 |
+
+94 + 87 = 181 — every component the analyser found is in exactly one of those
+columns. A further 2 file(s) yielded no component at all; they are listed below.
+```
+
+The arithmetic is printed rather than implied, because "181 components covered"
+is a file count wearing a suit unless every one of them is either in a spec or
+named with a reason it has none.
