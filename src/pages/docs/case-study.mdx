@@ -159,6 +159,60 @@ disclosure trigger with no selectable handle, a component whose early return may
 render nothing until a prop it cannot synthesise is supplied, a data fixture
 whose shape could not be inferred.
 
+## The second suite told the same story again
+
+The unit specs went green first. The Playwright browser specs — the same 181
+components driven in a real Chromium against the profiling host — then ran for
+the first time and reported **40 failed, 157 passed**. Not one was an
+application bug.
+
+They were the same nine mistakes, made by a scaffolder that had not learned what
+the unit one had. The two emitters had drifted, and every place they disagreed
+was a place the browser one was still guessing.
+
+- **The submit button was matched by a list of verbs** —
+  `/submit|save|send|invite|create|add|confirm/i`. Against copy like "Update
+  password" it matched nothing and Playwright waited the full 30 seconds: 18
+  failures, and about nine minutes of every run. What submits a form is written
+  down in the markup. A host `<button>` submits unless its `type` says
+  otherwise; a component tag counts only with an explicit `type="submit"`,
+  because shadcn and base-ui both render `type="button"` by default, so absence
+  is not evidence.
+- **`getByText` matches a case-insensitive substring.** `getByText("Try again")`
+  also matched "We couldn't load this page. Please try again." A `text` label is
+  the element's whole literal copy, so it now asks for exactly that.
+- **A bare tag is not a name.** `page.locator("button").first()` resolved to a
+  disabled "Cast vote" while the handler belonged to a vote option — and
+  clicking a disabled control means waiting for it to become enabled until the
+  test times out. The tag only names the element when it is the only one of its
+  kind, counting `<Button>` towards `button`.
+- **Fills ignored the field.** `.fill()` against sixteen checkboxes sharing one
+  name, against a checkbox, against a hidden input.
+- **A `<form onChange>` was driven as a text box.** React's change events
+  bubble; that is delegation, not an input.
+- **Functions cannot cross `page.evaluate`.** The props a browser spec passes go
+  through a structured clone, which drops them silently, so `onClick={reset}`
+  called `undefined`. The host now holds those names and supplies no-ops on its
+  own side of the boundary — and `reset` matches no naming convention, so being
+  bound to an event attribute is the evidence.
+- **Three error boundaries were failed for doing their job.** Each logs what it
+  caught; the spec asserted no console errors. A component that calls
+  `console.error`, or `.error()` on an imported binding, cannot satisfy that —
+  so the spec drops the one assertion it cannot justify, keeps the rest, and
+  says which call it saw.
+- **Seven table primitives were failed for a warning the harness caused.**
+  `<TableBody>` rendered into a `<div>` makes React log *"In HTML, `tbody`
+  cannot be a child of `div`"*. The required-ancestor chain is the HTML
+  specification, not an inference, so the host now nests the mount through it
+  and keeps those components covered instead of excluding them.
+- **One component's DEFAULTS were the wrong ones.** The browser emitter passed
+  the raw props shape where the profiler passes synthesised stand-ins, so
+  `ProfileForm` was green in one spec and dead in the other.
+
+One more, which was not a failure but cost the most time: the host reported
+*"did not render within 5000ms"* whatever the cause. It now carries the error
+React swallowed.
+
 ## The things that were not the analyser
 
 Roughly half the fixes were not inference at all. They are worth listing because
