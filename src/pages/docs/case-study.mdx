@@ -213,6 +213,21 @@ One more, which was not a failure but cost the most time: the host reported
 *"did not render within 5000ms"* whatever the cause. It now carries the error
 React swallowed.
 
+| Browser suite | First run | After |
+| --- | ---: | ---: |
+| Passed | 157 | 188 |
+| Failed | 40 | 0 |
+| Skipped, with a stated reason | 0 | 13 |
+| Wall clock | 13.2 min | 4.1 min |
+
+Most of the nine minutes that disappeared were 30-second waits — a locator
+looking for a button whose copy did not match a list of verbs, or an
+actionability check on a control that was disabled from the moment it mounted.
+Each is now a decision made at generation time, which is both faster and
+truthful. The 13 skips name what stopped them: `more than one <button> renders
+here and nothing distinguishes this one`, `its submit control is disabled at
+these props`, `<form> holds no value to change`.
+
 ## The things that were not the analyser
 
 Roughly half the fixes were not inference at all. They are worth listing because
