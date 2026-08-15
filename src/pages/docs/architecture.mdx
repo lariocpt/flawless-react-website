@@ -8,7 +8,7 @@ description: How flawless-react splits into an analyse phase and a scaffold phas
 
 `flawless-react` is structured as a task registry. The CLI (`src/cli.ts`) parses args — or prompts for them — expands the positional glob into entry files, analyses each one into a `ComponentTree`, then dispatches the selected tasks against a shared `RunContext`.
 
-Each task under `src/tasks/` is self-contained. They share the analyse output and write their own slice of the output directory (`tests/`, `unit/`, `browser/`, `reports/`).
+Each task under `src/tasks/` is self-contained. They share the analyse output and write their own slice of the output directory (`profile/`, `unit/`, `browser/`, `e2e/`, `load/`, `reports/`).
 
 ```
                  entry.tsx

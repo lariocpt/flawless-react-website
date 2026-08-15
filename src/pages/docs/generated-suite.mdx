@@ -10,7 +10,7 @@ Every file under `<outDir>/` is a string template emitted by the scaffolders. Th
 standalone — it knows nothing about `flawless-react` once it has been written, and you can commit,
 edit, fork, or delete it without affecting the generator.
 
-Each task writes its own slice of the directory. `perf-harness` owns `host/` and `tests/`,
+Each task writes its own slice of the directory. `perf-harness` owns `host/` and `profile/`,
 `unit-browser` owns `unit/` and `browser/`, and the three analysis tasks (`perf-static`, `a11y`,
 `react-rules`) write JSON into `reports/`. The slices barely overlap: `package.json` is the only
 file two tasks both touch, and the second one merges into it rather than replacing it. Everything
@@ -95,7 +95,7 @@ and `react-dom` to match before `bun install`.
 ## tsconfig.json
 
 A minimal config tuned for Bun plus Playwright: `target` and `module` at `ESNext`, bundler module
-resolution, `strict`, `noEmit`, and an `include` covering `host/`, `tests/` and
+resolution, `strict`, `noEmit`, and an `include` covering `host/`, `profile/` and
 `playwright.config.ts`.
 
 Two lines are non-default and matter: `"jsx": "react-jsx"` and `"allowImportingTsExtensions": true`.
