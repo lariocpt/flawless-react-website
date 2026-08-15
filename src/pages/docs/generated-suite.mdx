@@ -23,7 +23,7 @@ The default output directory is `./.flawless`; `--out <dir>` moves it.
 ├── package.json              # standalone deps + scripts (merged, not replaced, by unit-browser)
 ├── tsconfig.json
 ├── playwright.config.ts      # perf suite — auto-boots host/server.ts (and mock/server.ts with --api)
-├── vitest.config.ts          # unit-browser
+├── vitest.config.mts         # unit-browser
 ├── setup.ts                  # unit-browser — jest-dom matchers
 ├── budgets.json              # per-component mount/update budgets (warn-only by default)
 ├── host/
@@ -388,10 +388,19 @@ which keeps passing-run artefacts small.
 hard byte-delta ceiling, in which case replace the `bracketScenario` body with explicit
 `takeHeapSnapshot` calls and an `expect(after - before).toBeLessThan(...)`.
 
-## vitest.config.ts
+## vitest.config.mts
 
 Emitted by `unit-browser`. It sets `environment: "jsdom"`, loads `./setup.ts` as a setup file,
 includes `unit/**/*.test.{ts,tsx}`, and turns Vitest globals on.
+
+The `.mts` extension is not cosmetic. Vite decides ESM or CommonJS from the nearest `package.json`,
+which in Next.js mode is the target application's — and that usually has no `"type": "module"`, so
+the config loaded as CommonJS and Vite warned that its strict loader, planned to become the default
+in a future major, will reject it. A standalone suite escaped only because the suite's own
+`package.json` sets `"type": "module"`. `.mts` is unambiguous in both modes, so nothing has to
+reason about whose `package.json` is nearest. Regenerating an older suite deletes the stale
+`vitest.config.ts` rather than leaving two configs in one directory, where Vitest's own precedence
+decides which one runs and the file you edit may not be the file that ran.
 
 ## setup.ts
 
