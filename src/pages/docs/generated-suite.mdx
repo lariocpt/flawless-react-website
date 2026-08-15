@@ -82,8 +82,9 @@ name `--run-tests` looks for), `test:headed` (`playwright test --project=interac
 when you passed `--report`, which is also the only time `scripts/report.mjs` is written — `report`
 (`node ./scripts/report.mjs`).
 
-If `unit-browser` runs as well, it **merges into** this file rather than replacing it. It adds
-`test:unit` (`vitest run`), `test:perf` (`playwright test profile`) and `test:browser`
+If `unit-browser` runs as well, it **merges into** this file rather than replacing it — and so does
+`perf-harness`, so the result does not depend on the order you list the tasks in. It adds
+`test:unit` (`vitest run`) and `test:browser`
 (`playwright test --config browser/playwright.config.ts`), and adds `vitest`, `@vitest/ui`, `jsdom`,
 `@testing-library/react`, `@testing-library/user-event` and `@testing-library/jest-dom` to
 `devDependencies`. Existing pinned versions are kept, so re-running does not silently downgrade

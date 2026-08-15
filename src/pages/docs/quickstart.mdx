@@ -148,9 +148,10 @@ that overwrites your edits. [What gets generated](/docs/generated-suite/) walks 
 emitted file, and [Extending a suite](/docs/extending/) covers turning the warnings into hard
 assertions.
 
-If `unit-browser` was part of the run, the suite's `package.json` also carries `test:unit`,
-`test:perf` and `test:browser` scripts for the Vitest units, the perf specs and the functional
-browser specs.
+If `unit-browser` was part of the run, the suite's `package.json` also carries a `test:unit` script
+for the Vitest units, and `test:browser` for the functional browser specs when `perf-harness` ran
+too — they drive its host. `test:perf` comes from `perf-harness` itself, so a run with both ends up
+with all three however you ordered the tasks.
 
 ## The three flags to know first
 
