@@ -31,7 +31,7 @@ The default output directory is `./.flawless`; `--out <dir>` moves it.
 │   ├── _polyfill.ts          # process / global / setImmediate shims for the browser
 │   ├── index.html            # the shell the bundle mounts into
 │   └── main.tsx              # createRoot + <Profiler> + react-scan + window.__profile driver
-├── tests/                    # perf-harness
+├── profile/                  # perf-harness
 │   ├── _helpers.ts           # render-info / scan-event harvesters, summarize() stats
 │   ├── _heap.ts              # CDP-driven heap-snapshot helpers (write to ./heaps/)
 │   └── <Component>.profile.spec.ts
@@ -77,12 +77,13 @@ Render timing comes from React's built-in `<Profiler>`, so no separate measureme
 required. The package name is the suite's own name with a `-profile` suffix, and it is marked
 `private` and `"type": "module"`.
 
-Scripts from `perf-harness`: `test` (`playwright test`), `test:headed`
-(`playwright test --project=interactive`), and `report` (`node ./scripts/report.mjs`, which only
-exists if you passed `--report`).
+Scripts from `perf-harness`: `test` (`playwright test`), `test:perf` (the same command under the
+name `--run-tests` looks for), `test:headed` (`playwright test --project=interactive`), and — only
+when you passed `--report`, which is also the only time `scripts/report.mjs` is written — `report`
+(`node ./scripts/report.mjs`).
 
 If `unit-browser` runs as well, it **merges into** this file rather than replacing it. It adds
-`test:unit` (`vitest run`), `test:perf` (`playwright test tests/`) and `test:browser`
+`test:unit` (`vitest run`), `test:perf` (`playwright test profile`) and `test:browser`
 (`playwright test --config browser/playwright.config.ts`), and adds `vitest`, `@vitest/ui`, `jsdom`,
 `@testing-library/react`, `@testing-library/user-event` and `@testing-library/jest-dom` to
 `devDependencies`. Existing pinned versions are kept, so re-running does not silently downgrade
@@ -106,10 +107,10 @@ checker.
 
 ## playwright.config.ts
 
-The perf suite's config. `testDir` is `./tests`, the reporters are `list` plus an HTML report
-written to `playwright-report/` (never auto-opened), `preserveOutput` is `"always"`, and traces are
-kept on failure. Two projects are defined: `chromium` (default, headless) and `interactive`
-(headed).
+The perf suite's config. `testDir` is `./profile`, the reporters are `list`, a `json` report written
+to `test-results/results.json` (what `scripts/report.mjs` reads) and an HTML report written to
+`playwright-report/` (never auto-opened), `preserveOutput` is `"always"`, and traces are kept on
+failure. Two projects are defined: `chromium` (default, headless) and `interactive` (headed).
 
 The key field is `webServer`, which auto-boots the host before any test runs:
 
@@ -125,11 +126,13 @@ webServer: {
 
 With `--api`, `webServer` becomes an array and the mock server on port 5174 is booted alongside it.
 
-Workers are pinned to 1 and `fullyParallel` is off, because the host serves one component at a time
-and parallel mounts would fight over the singleton `activeRoot`.
+`fullyParallel` is on, and workers are pinned to 1 only under `CI` — where a recorded number usually
+matters — or when `FLAWLESS_WORKERS` says so. One worker gives the cleanest timings; more give a
+faster verification run at the cost of noisier numbers, which never fails a run because the budgets
+only warn.
 
 **Edit when**: you need a different port, you want to add a `firefox` or `webkit` project, or you
-want to run tests in parallel — which requires reworking the host to scope state per page.
+want a single worker everywhere rather than only under `CI`.
 
 ## host/server.ts
 
@@ -255,7 +258,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
 **Edit when**: you want async setup before each mount — seeding store state, logging in a mock user.
 Add a `setup`/`teardown` named export and call them from `mount`/`unmount` in `host/main.tsx`.
 
-## tests/_helpers.ts
+## profile/_helpers.ts
 
 Thin wrappers around `page.evaluate(...)` so the spec files stay readable: `mountComponent`,
 `rerenderComponent`, `unmount`, `getRenderInfo`, `getScanEvents`, `clearScanEvents`, plus
@@ -265,7 +268,7 @@ sample count `n`.
 **Edit when**: you want a higher-level helper such as `mountWithUser(page, name, props, userFixture)`
 that sets up a mock auth context first.
 
-## tests/_heap.ts
+## profile/_heap.ts
 
 Drives the browser's V8 heap profiler through Playwright's CDP session
 (`HeapProfiler.takeHeapSnapshot`). It produces `.heapsnapshot` artefacts in the same format Chrome
@@ -305,7 +308,7 @@ objects retained after the scenario.
 or you want the byte delta as a hard assertion:
 `expect(after.byteLength - before.byteLength).toBeLessThan(THRESHOLD)`.
 
-## tests/&lt;Component&gt;.profile.spec.ts
+## profile/&lt;Component&gt;.profile.spec.ts
 
 One spec per analysed component. Each spec is **fully self-contained**: its `DEFAULTS`, `VARIANTS`
 and `HOOKS` are baked in as literals at the top. There is no shared fixture file and no implicit
@@ -500,10 +503,15 @@ file is a starting point: replace any route's static body with a function that i
 
 ## scripts/report.mjs
 
-Only with `--report`. It reads `playwright-report/index.html` from the last run, pulls out the
-per-component variant and forced-rerender stat lines, and writes a `report.md` summarising them. It
-is a plain Node script with no Playwright runtime needed, emitted executable, and it exits with an
-error if you run it before the first test run.
+Only with `--report` — and that is also the only time the suite's `package.json` declares a `report`
+script, so the two cannot disagree. It reads `test-results/results.json`, written by the `json`
+reporter in `playwright.config.ts`, pulls out the per-component variant and forced-rerender stat
+lines, and writes a `report.md` summarising them. It is a plain Node script with no Playwright
+runtime needed, emitted executable, and it exits with an error if you run it before the first test
+run.
+
+It reads the JSON reporter's output rather than `playwright-report/index.html` because the HTML
+report keeps stdout inside a base64 zip blob, where the stat lines cannot be read out of the file.
 
 **Edit when**: you want HTML output, you want to push the summary to a metrics endpoint, or you want
 to diff against a baseline JSON.
@@ -565,7 +573,7 @@ Pass `--no-inline-summary` to skip these.
 
 ## heaps/
 
-Not generated — created at test time by `tests/_heap.ts`, holding the `.heapsnapshot` files
+Not generated — created at test time by `profile/_heap.ts`, holding the `.heapsnapshot` files
 described above. Worth adding to `.gitignore` alongside `reports/` and `playwright-report/`.
 
 ## README.md

@@ -14,12 +14,15 @@ things, so pick by whether the target machine has Bun and by which of the seven 
 |  | Standalone binary | Source package |
 | --- | --- | --- |
 | Needs Bun on the target | No | Yes, Bun >= 1.1 |
-| Needs `jq` on the target | Yes | Yes |
+| Needs `jq` on the target | Only for the `load` task | Only for the `load` task |
 | `perf-harness`, `unit-browser`, `perf-static` | Work anywhere | Work anywhere |
 | `a11y`, `react-rules` | Need biome in the scanned project or on `PATH` | Work with no further setup |
 | Ships biome | No — a compiled binary cannot carry it | Yes — `@biomejs/biome` is a real dependency |
 
-The CLI shells out to `jq`, so that has to be present either way.
+The CLI itself never shells out to `jq`. The one place it is needed is `flawless/load/env.sh`, the
+script the `load` task emits for you to `source` before a crust run — that is what reads the ids out
+of `e2e/params.json`. Without `jq` the script says so and exports nothing; every other task is
+unaffected.
 
 ## Standalone binary
 

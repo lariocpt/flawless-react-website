@@ -49,7 +49,7 @@ The seven task ids, and what each one leaves behind:
 | `a11y` | `reports/<Component>.a11y.json` — Biome's accessibility rules over the targeted tree, as file:line findings. |
 | `react-rules` | `reports/<Component>.react-rules.json` — a curated set of bug-catching React and hooks rules via Biome (`useExhaustiveDependencies`, `useHookAtTopLevel`, `useJsxKeyInIterable`, and friends), bypassing any local `biome.json`. |
 | `e2e` | `e2e/<route>.spec.ts` — one Playwright spec per app-router page: the route loads with no console or page errors, plus interactions harvested from its component tree. Next.js mode only. |
-| `load` | `load/*.pipe` — crust load pipes per route and per API operation, with baselines written on the first run. |
+| `load` | `load/routes.pipes` — crust load pipes per route and per API operation. Each run writes `load/last-<name>.json`; you promote one to `load/baseline-<name>.json` by hand, and later runs then fail when p95 exceeds 2x it. |
 
 Findings also surface where the code lives: a small `<Component>.flawless.json` is dropped next
 to each source file unless you pass `--no-inline-summary`.
