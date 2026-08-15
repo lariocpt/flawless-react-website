@@ -110,6 +110,26 @@ because their contents cannot be recovered if lost:
 - `flawless/e2e/global-setup.ts`, `flawless/load/routes.pipes`, `flawless/load/README.md`.
 - Colocated `*.flawless.test.tsx` specs, unless you pass `--force`.
 
+## Run only what an edit affects
+
+A full suite is the wrong unit of work when three components changed, and
+analysing a whole app costs about half a second — so `--changed` keeps analysis
+and generation complete and narrows only the run.
+
+```bash
+bunx flawless-react "src/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser --changed
+```
+
+Unit specs are selected through vitest's module graph, so the selection is
+transitively correct without this tool reproducing its own naming rules. Profile
+and browser specs are selected by component name. e2e is selected by whether a
+page's tree **renders** a changed component — the relationship a path filter
+cannot see, since editing a leaf `<StatusPill>` changes what every page
+rendering it produces without changing those pages' files.
+
+Against a 181-component app, editing one file that exports seven components
+takes about 13 seconds end to end, including a full regeneration.
+
 ## Turn heap snapshots off
 
 The profile suite takes a V8 heap snapshot either side of every scenario. On a real app each
