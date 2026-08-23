@@ -143,8 +143,8 @@ load in Chrome DevTools' Memory tab, and two of them compared there show what a 
 retained.
 
 Budgets are warn-only on the first run — you measure before you know what "fast enough" means
-for a component. Once the suite is generated it belongs to you: there is no regeneration step
-that overwrites your edits. [What gets generated](/docs/generated-suite/) walks through each
+for a component. Once the suite is generated it belongs to you: the files that hold your work
+(budgets, provider fixtures, handlers, colocated specs) are write-once or kept on re-runs. [What gets generated](/docs/generated-suite/) walks through each
 emitted file, and [Extending a suite](/docs/extending/) covers turning the warnings into hard
 assertions.
 

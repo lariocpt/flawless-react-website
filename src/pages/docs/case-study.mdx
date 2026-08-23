@@ -278,3 +278,32 @@ columns. A further 2 file(s) yielded no component at all; they are listed below.
 The arithmetic is printed rather than implied, because "181 components covered"
 is a file count wearing a suit unless every one of them is either in a spec or
 named with a reason it has none.
+
+## Update: dogfood round 4 (August 2026)
+
+The same app, revisited after twelve tool commits, with four iterations that
+exercised the paths the first run could not — upgrade-in-place, real e2e and
+load against a seeded database and production build, hand-hardening through
+the extension points, and the `--changed`/`--force` flows.
+
+| | |
+| --- | ---: |
+| Components (after the useRender/effect-only detector landed) | 183 |
+| Files yielding no component | 0 |
+| Unit tests | 508 pass / 14 reasoned skips |
+| Browser + profile tests | 191 + 212 pass |
+| Route e2e (seeded DB, real login) | 39 / 39 |
+| Load pipes vs committed baselines (prod build, authed) | 33 / 33 |
+| Findings after burn-down (a11y / react-rules) | 0 / 0 |
+
+Measured line coverage of the generated **unit layer alone**, before the
+browser, e2e and load layers: **64.7% of all component-file lines** (66.2%
+lines, 88.9% branches inside `components/`).
+
+A no-force regeneration against the newer tool changed exactly one file that
+mattered — the write-once set and all 172 colocated specs held. A `--force`
+regeneration's entire clobber surface was the three specs that had been
+hand-hardened, restored from git in one command. The round also sent four
+fixes upstream (`.mts` style adoption, the two new component detections, and
+suppression noise in the sweeps), which is the point of the exercise: where a
+spec was wrong, the generator was fixed rather than the spec.
