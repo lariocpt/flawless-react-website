@@ -14,8 +14,10 @@ component's type signature, walks its JSX to discover locally-imported children,
 a runnable Playwright + Vitest suite, an accessibility scan, and a Biome-driven correctness
 report — with file:line findings for every issue. Run it with no arguments for an interactive
 checkbox menu. The generated suite is a standalone project that knows nothing about the tool
-once written: there is no regeneration step that overwrites your edits, so you can tighten
-budgets, add scenarios and swap in real fixtures like any other test code.
+once written. A re-run regenerates derived files so they track your source, while the files
+meant to hold your work — budgets, host wrapper, provider fixtures, MSW handlers, colocated
+specs — are write-once or kept: tighten budgets, add scenarios and swap in real fixtures
+like any other test code.
 
 <InstallBlock />
 

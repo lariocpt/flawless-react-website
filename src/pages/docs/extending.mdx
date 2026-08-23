@@ -6,10 +6,11 @@ description: Patterns for editing a generated suite — providers, mocks, hard b
 
 ## The output is your test code
 
-What `flawless-react` writes is your test code, not a black box. There is no regeneration
-step that overwrites you: running the CLI again with the same `--out` is rejected unless you
-pass `--force`. The point of the tool is to skip the boilerplate and then hand you something
-you can shape to your project.
+What `flawless-react` writes is your test code, not a black box. Re-running the CLI over an
+existing suite refuses to rebuild the perf harness unless you pass `--force`; the other tasks
+refresh their derived files on any re-run, and the files that can hold your work stay yours
+even under `--force` (see below). The point of the tool is to skip the boilerplate and then
+hand you something you can shape to your project.
 
 What follows are the patterns that have worked well.
 
@@ -113,7 +114,8 @@ because their contents cannot be recovered if lost:
 ## Run only what an edit affects
 
 A full suite is the wrong unit of work when three components changed, and
-analysing a whole app costs about half a second — so `--changed` keeps analysis
+analysing a whole app costs about half a second (measured 2026-08-23: 99 files
+in 463 ms) — so `--changed` keeps analysis
 and generation complete and narrows only the run.
 
 ```bash
