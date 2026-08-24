@@ -42,7 +42,8 @@ Every flag that takes a value accepts both `--flag value` and `--flag=value`. An
 | `--props '<json>'` | A JSON object merged over the synthesised default props of the first entry. Use it when a prop's type could not be resolved. |
 | `--provider <file>` | Path to a `.tsx` file that default-exports a wrapper component. The host renders every mounted component inside it — this is how Redux, React Query, theming, or any other context-based store gets threaded through. |
 | `--api <spec>` | Path to an OpenAPI / Swagger JSON or YAML file. Scaffolds a standalone Bun mock server (`mock/server.ts`) with static route handlers generated from the spec's first example responses; the host server transparently proxies all non-asset requests to it. |
-| `--force` | Overwrite an existing output directory. |
+| `--colocate` | Write unit specs beside their source as `<name>.flawless.test.tsx` — the ones you hand-harden. Each opens with a `// @flawless-generated sha256:…` provenance stamp so `--force` can tell an untouched spec from one you edited. |
+| `--force` | Regenerate the files a plain re-run keeps: colocated specs, e2e route specs, the derived provider wrapper. A colocated spec is only rewritten while its provenance stamp still matches — hand-edited (or pre-stamp) specs are kept and listed; delete one to regenerate it. A re-run already refreshes the out-dir harness; write-once files are never touched under any flag. |
 | `--report` | Emit `scripts/report.mjs`, so `bun run report` aggregates run output into a markdown summary. |
 | `-h, --help` | Print the help text and exit. |
 | `-V, --version` | Print the version and exit. |

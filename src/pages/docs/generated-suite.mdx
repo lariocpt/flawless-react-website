@@ -390,8 +390,10 @@ hard byte-delta ceiling, in which case replace the `bracketScenario` body with e
 
 ## vitest.config.mts
 
-Emitted by `unit-browser`. It sets `environment: "jsdom"`, loads `./setup.ts` as a setup file,
-includes `unit/**/*.test.{ts,tsx}`, and turns Vitest globals on.
+Emitted by `unit-browser`. It sets `environment: "jsdom"`, pins `esbuild.jsx: "automatic"` in
+the config itself (a Next.js host's tsconfig says `jsx: "preserve"`, which leaves Vitest's
+esbuild on the classic runtime and every render dies with "React is not defined"), loads
+`./setup.ts` as a setup file, includes `unit/**/*.test.{ts,tsx}`, and turns Vitest globals on.
 
 The `.mts` extension is not cosmetic. Vite decides ESM or CommonJS from the nearest `package.json`,
 which in Next.js mode is the target application's — and that usually has no `"type": "module"`, so

@@ -10,7 +10,7 @@ import InstallBlock from '../../components/InstallBlock.astro';
 
 The static analyser is deliberately narrow — it favours predictability over cleverness.
 
-- **Component shape.** A `const X: React.FC<Props> = (props) => …` declaration, or an `export default function X(props: Props) { … }`. Other forms — HOCs, decorators, dynamic component factories — are not detected.
+- **Component shape.** A `const X: React.FC<Props> = (props) => …` declaration, an `export default function X(props: Props) { … }`, or either wrapped in `memo()`/`forwardRef()` — the declared props survive the wrapper (`FC<Props>`, `memo<Props>`, `forwardRef<E, Props>` all feed extraction). Other forms — arbitrary HOCs, decorators, dynamic component factories — are not detected.
 - **Props type.** Same-file types resolve directly, and imported ones are chased two hops. Intersections (`A & B`), host-element props (`ComponentProps<"div">`), `ComponentProps<typeof LocalX>` and cva tables (`VariantProps<typeof buttonVariants>`) all resolve. What does not: unions of non-literals, `Omit`/`Pick`/`Partial`, `z.infer` aliases, and anything in `node_modules`. Those push the prop into `unresolvedProps` and the type that defeated it into `unresolvedTypes`; you then either pass `--props '{…}'` or edit the generated spec's `DEFAULTS` constant.
 - **Type to default value.** Primitives, arrays (always `[]`), inline object types (recursive), and literals are mapped. A prop no type resolves can still be recovered when the body uses it to index a same-file object literal with literal keys — those keys *are* the union, written out.
 - **Variant matrix.** Only union-of-literal props produce variants. The matrix is pairwise — one prop varied at a time around the defaults, not the full cartesian product.

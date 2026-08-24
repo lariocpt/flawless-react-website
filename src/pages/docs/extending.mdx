@@ -6,11 +6,12 @@ description: Patterns for editing a generated suite — providers, mocks, hard b
 
 ## The output is your test code
 
-What `flawless-react` writes is your test code, not a black box. Re-running the CLI over an
-existing suite refuses to rebuild the perf harness unless you pass `--force`; the other tasks
-refresh their derived files on any re-run, and the files that can hold your work stay yours
-even under `--force` (see below). The point of the tool is to skip the boilerplate and then
-hand you something you can shape to your project.
+What `flawless-react` writes is your test code, not a black box. A re-run is never refused:
+a fresh out dir is **generated**, a re-run over an existing suite **refreshes** every derived
+file (write-once files untouched, exit 0), and a `--changed` run **keeps** the harness
+entirely while running the affected specs. The files that can hold your work stay yours even
+under `--force` (see below). The point of the tool is to skip the boilerplate and then hand
+you something you can shape to your project.
 
 What follows are the patterns that have worked well.
 
@@ -105,11 +106,20 @@ component, after which regenerating turns the skip into a test.
 `--force` regenerates the derived output, but a few files become yours the moment they exist,
 because their contents cannot be recovered if lost:
 
-- `flawless/provider.fixtures.ts` — the typed holes for your store's initial state.
-- `flawless/e2e/params.json` — seeded record ids. Merge-preserving even under `--force`; stale
-  route keys are pruned, filled values never are.
-- `flawless/e2e/global-setup.ts`, `flawless/load/routes.pipes`, `flawless/load/README.md`.
-- Colocated `*.flawless.test.tsx` specs, unless you pass `--force`.
+Protected under every flag, including `--force`: `flawless/budgets.json`,
+`flawless/mock/routes.ts`, `flawless/host/main.tsx` (the wrapper only — the mount tables in
+`host/registry.ts` beside it regenerate every run), `flawless/provider.fixtures.ts`,
+`flawless/e2e/global-setup.ts` and `flawless/mocks/handlers.ts`.
+
+Merge-preserving under `--force`: `flawless/e2e/params.json` (stale route keys are pruned,
+filled values never are) and `flawless/load/routes.pipes` (your edited pipes and rates
+survive; only the header regenerates).
+
+Colocated `*.flawless.test.tsx` specs are kept without `--force` — and guarded WITH it: each
+opens with a `// @flawless-generated sha256:…` stamp hashing the rest of the file, and
+`--force` rewrites a spec only while the stamp still matches. A hand-edited spec (stamp
+mismatch) or a pre-stamp one is kept and listed in the run summary; delete such a file to
+regenerate it.
 
 ## Run only what an edit affects
 
@@ -173,9 +183,11 @@ const VARIANTS = [
 ] as Array<Record<string, unknown>>;
 ```
 
-Edit-time concern: when you re-run the generator with `--force`, your hand-added variants get
-overwritten. That's by design — the tool is the source of *initial* truth, you are the source
-of *evolved* truth. Don't `--force` after you've started editing.
+Edit-time concern: a spec inside the out dir is rewritten on every regeneration, `--force`
+or not — the tool is the source of *initial* truth and keeps improving what it emits. A spec
+you want to evolve belongs in `--colocate` mode: written beside your source, kept without
+`--force`, and — once you edit it — kept under `--force` too, because the provenance stamp on
+its first line no longer matches the body.
 
 ## Run a specific spec or test
 

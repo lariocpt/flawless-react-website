@@ -120,7 +120,7 @@ The host page initialises `react-scan` once at module load, buffers any "unneces
 
 ### index.ts — the writer
 
-Resolves `outDir`, refuses to overwrite unless `--force`, creates the directory tree with `fs/promises.mkdir({ recursive: true })`, and writes each `RenderedFile` with `Bun.write`. The `executable` flag flips a `chmod 0o755` on emitted scripts.
+Resolves `outDir` and writes each `RenderedFile` with `Bun.write` — a re-run **refreshes** derived files rather than refusing (write-once files stay untouched; the suite's own `playwright.config.ts` banner records which tool version wrote it). The `executable` flag flips a `chmod 0o755` on emitted scripts.
 
 ## Why two phases
 
