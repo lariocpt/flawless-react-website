@@ -373,3 +373,36 @@ proves it end to end by mutating the shared type at its source and watching
 the fixture re-derive — and the count stayed flat because the truth was
 further downstream than the diagnosis. Counting that honestly is the whole
 point of the exercise.
+
+## Update: dogfood round 7 (late August 2026)
+
+Round 6 ended with a corrected map rather than a burned-down count: of the
+42 "return shapes could not be inferred" markers, exactly **one** was the
+shared-typed dep the wall had been named after. The rest were an unannotated
+database-client factory (21 of them), dotted local calls, and a
+`cache()`-wrapped export. Round 7 built the thing that one dep needed — zod
+schema inference, reading `z.infer` aliases as syntax — and shipped it.
+
+The marker count moved **118 → 117**. That is the honest headline, and it is
+the number a burn-down chart would show.
+
+The useful movement is underneath it. `listMeetingParticipants` now carries a
+complete fixture with all three of its enum members resolved. More
+importantly, enum-typed *props* started producing variant matrices that did
+not exist before: `RsvpButtons` gained a four-row matrix over its
+`RsvpStatus` prop, `JobControls` likewise. Generated unit tests went
+**508 → 517**, all nine of them executing green on the first run against
+components whose specs had previously passed `undefined` and asserted
+nothing about those states. Static perf findings dropped 245 → 241 as
+unresolved-prop warnings retired themselves.
+
+The same round pointed nine adversarial finders at the tool itself and found
+four paths where it could report a pass nobody earned: an unknown task id
+filtered away (exit 0, zero tasks run), a `--changed` ref git could not
+resolve reported as "nothing affected", a file the linter could not parse
+reported clean, and an emitted assertion — `document.body.innerHTML.length >
+0` — that cannot fail because the test renderer always appends a container.
+All four were fixed inside the round, each with a control proving the new
+guard can fail. Fixing the fourth introduced a scoping bug in the emitted
+spec, which the execution tests caught immediately: that is what "verified by
+executing the artefact, never by parsing it" buys.
