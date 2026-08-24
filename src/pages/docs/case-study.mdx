@@ -307,3 +307,34 @@ hand-hardened, restored from git in one command. The round also sent four
 fixes upstream (`.mts` style adoption, the two new component detections, and
 suppression noise in the sweeps), which is the point of the exercise: where a
 spec was wrong, the generator was fixed rather than the spec.
+
+
+## Update: dogfood round 5 (late August 2026)
+
+The same app once more, this time against the **CI-published packages** — the
+first artifacts the tool's own pipeline ever shipped — after the waves that
+closed the review ledger to 33/34. The round-4 pain points, retested:
+
+| | |
+| --- | ---: |
+| Plain re-run over the adopted suite | exit 0, harness **refreshed** (the old refusal is gone) |
+| Pre-split `host/main.tsx` migration | one delete + re-run; the hand-registered Badge now mounts from the derived registry |
+| `--force` over 174 pre-stamp colocated specs | **all 174 kept**, zero source diff — the round-4 clobber is structurally impossible |
+| After the stamp migration | 169 specs stamped; the 5 hand-hardened kept and listed by path |
+| `TODO(flawless)` markers | 178 → **118** (compound wraps 44 → 24, with 18 parts mounting inside their own file's family; return shapes ≈87 → 42) |
+| All five layers, fresh seed | unit 508 · browser 191 · profile 254 · e2e 39/39 · load 33/33 — zero adjustments |
+
+The clusters that did **not** burn are the bail policies working, not gaps:
+this app's server actions mix literal returns with `toFormState(err)` calls
+(mixed shapes refuse to guess), and every `Promise<T>` annotation imports its
+`T` from a workspace package the resolver deliberately doesn't chase — one
+precise wall, now a named backlog item, rather than scattered failures.
+
+Two fixes went upstream from live pain, in the round's own spirit: nullable
+unions (`X | null` members, the dominant DB-shaped annotation) now resolve to
+the non-null arm — a member of the declared union, never a guess — and a
+hand-customized `flawless:*` script survives regeneration, recorded durably
+in REPORT.md. That second one bit mid-round: a refresh clobbered this app's
+customized `flawless:load`, and the crust setup module failed loudly instead
+of measuring a 404 handler — both tools doing exactly what their honesty
+rules promise.
