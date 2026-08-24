@@ -338,3 +338,38 @@ in REPORT.md. That second one bit mid-round: a refresh clobbered this app's
 customized `flawless:load`, and the crust setup module failed loudly instead
 of measuring a 404 handler — both tools doing exactly what their honesty
 rules promise.
+
+## Update: dogfood round 6 (late August 2026)
+
+The round that closed the ledger (34/34 — the `--ci` process contract was
+the last open item) and shipped the named wall from round 5: **workspace
+package type resolution**. Bare specifiers like `@mybodycorp-ai/shared` now
+resolve through the repo's workspace map into the package's *source* tree,
+and barrel re-exports — star, renamed, local clauses — are chased to the
+declaring file, with an adversarial review pass that caught and fixed a
+private-declaration shadow, star-vs-explicit precedence, and a
+breadth-starved walk before merge.
+
+Then the honest part. The refresh on this app ran clean (exit 0, version
+stamps only; the five hand-hardened specs kept; the customized
+`flawless:load` command kept and reported), all five layers green again —
+unit 508 · browser 191 · profile 254 · e2e 39/39 · load 33/33 — and the
+TODO count moved from 118 to **118**. Zero. The round-5 diagnosis of the
+42-marker return-shapes wall was wrong, and this round measured the real
+composition per callee: 21 are an unannotated `getDb` client factory (no
+fixture is derivable in principle), a handful are dotted local calls, two
+are a React `cache()`-wrapped export the function mapper cannot unwrap, and
+exactly **one** is the shared-typed dep the wall was named after. That one
+was probed live: the new resolution chain lands on the right interface in
+the right file — and then bails, because `z.infer` enum aliases sit as
+*members* of the interface and the bail-on-any-hole policy refuses the
+whole value rather than guess a hole.
+
+So the deliverable of round 6 is a corrected map, not a burned-down count:
+three named frontiers (zod-schema inference, `cache()` unwrapping, and a
+browser-host stubbing edge for dist-built workspace packages) replaced one
+misdiagnosed wall. The resolution machinery works — the execution test
+proves it end to end by mutating the shared type at its source and watching
+the fixture re-derive — and the count stayed flat because the truth was
+further downstream than the diagnosis. Counting that honestly is the whole
+point of the exercise.
