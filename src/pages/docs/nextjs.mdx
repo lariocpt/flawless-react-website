@@ -206,7 +206,7 @@ The dependencies the generated suite needs are merged into your project's `devDe
 }
 ```
 
-The script paths are written relative to the project root, so they follow `--out` if you moved the output directory. Merging is a shallow overwrite of those specific keys — anything else in your `package.json` is left alone.
+The script paths are written relative to the project root, so they follow `--out` if you moved the output directory. The merge only ever touches its own keys — and since 0.3.0 it does not even overwrite those blindly: a `flawless:*` value you have customised (say, adding `--env-file` to a load script) is recognised as your work and kept, because the tool only upgrades values it can identify as one of its own past spellings. Kept keys are named in the run summary, in REPORT.md as `> Kept script(s): ...`, and in the `--ci` blob's `keptScripts`. Delete the key and re-run to take the tool's current command.
 
 ### `.gitignore`
 
