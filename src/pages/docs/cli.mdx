@@ -30,7 +30,7 @@ Every flag that takes a value accepts both `--flag value` and `--flag=value`. An
 | `--no-interactive` | Never prompt. Requires a positional and `--tasks`. |
 | `--run-tests` | After generating, run the produced test suites. |
 | `--no-inline-summary` | Do not drop a `<Component>.flawless.json` next to each source file. |
-| `--json` | Print a machine-readable JSON summary — `{ exitCode, outDir, results, keptScripts }` — to stdout, and nothing else there; the human output moves to stderr. |
+| `--json` | Print a machine-readable JSON summary — `{ exitCode, outDir, results, keptScripts }` — to stdout, and nothing else there. The human summary table is suppressed; what suite runs say goes to stderr. Diagnostics stay on stderr too — see below. |
 | `--nextjs [<path>]` | Treat `<path>`, or the current directory when the value is omitted, as a Next.js project: detect the router style, emit MSW handlers and swagger from `app/api` or `pages/api`, auto-set the app resolver from `app/layout.tsx` or `pages/_app.tsx`, merge the generated deps into the project's `package.json` as `devDependencies`, and place everything under `<nextRoot>/flawless/`. |
 | `--app-resolver <file>` | Override the auto-detected Next.js app resolver. It is an alias for `--provider` in Next.js mode, and the file must default-export a wrapper component. |
 | `--swagger-url <url>` | Fetch an OpenAPI spec from a live URL, for example `http://localhost:3000/api/docs` from next-swagger-doc, and prefer it over static AST inference. In `--nextjs` mode that default URL is tried automatically with a short timeout; pass `--swagger-url` to force a specific URL, or `--swagger-url=off` to skip the auto-try. |
@@ -84,6 +84,14 @@ Beyond whatever the selected tasks write, every run produces:
 - A `<Component>.flawless.json` next to each analysed source file, unless `--no-inline-summary`. It holds per-task finding counts, the three highest-severity findings, and paths to the full `a11y`, `react-rules`, and `perf-static` reports. This is what makes issues surface where the code lives rather than only in a terminal that has scrolled away.
 
 Findings are printed grouped by file, one line each as `severity  line:column  rule  message`, followed by a summary table with a status, file count, and finding count per task.
+
+### The two streams are decided separately
+
+`--json` (and `--ci`, which implies it) hands **stdout** to the caller: exactly one JSON blob, nothing else, so piping the whole stream into a parser always works.
+
+That is a statement about stdout, not a vow of silence. **Diagnostics keep going to stderr** — a file the sweep could not parse and skipped, an OpenAPI spec it ignored, a test-script collision, a Next.js emit that failed. Those lines are the only account of work a run quietly dropped, so an unattended caller should capture stderr as well as parse stdout. Both streams used to share one flag, which meant the mode built for machines was the one that lost them.
+
+Embedding the tool with `runFlawless`? `log` controls the stdout narration and is off by default. `quiet` controls the stderr diagnostics and is **off** by default too — meaning the warnings speak, unless you pass `quiet: true` to silence them.
 
 ## Running the generated tests
 
