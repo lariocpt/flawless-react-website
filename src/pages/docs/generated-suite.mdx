@@ -531,13 +531,13 @@ to diff against a baseline JSON.
 ## reports/
 
 The three analysis tasks do not scaffold anything runnable — they write findings. Each one produces
-one JSON file per analysed root component:
+one file per analysed root component for `perf-static`, and one aggregate for each sweep:
 
 | File | Written by | Contents |
 | --- | --- | --- |
 | `<Name>.perf-static.json` | `perf-static` | `component`, `file`, `findings` |
-| `<Name>.a11y.json` | `a11y` | `component`, `file`, `findings` |
-| `<Name>.react-rules.json` | `react-rules` | `component`, `file`, a `note`, `findings` |
+| `a11y.json` | `a11y` | `task`, `filesScanned`, `findingCount`, `findingsByFile` |
+| `react-rules.json` | `react-rules` | `task`, a `note`, `filesScanned`, `findingCount`, `findingsByFile` |
 | `summary.json` | always | a timestamp plus one row per task that ran |
 
 Every finding has the same shape, whichever task produced it:
