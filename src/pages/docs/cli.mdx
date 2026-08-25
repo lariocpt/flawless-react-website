@@ -30,7 +30,7 @@ Every flag that takes a value accepts both `--flag value` and `--flag=value`. An
 | `--no-interactive` | Never prompt. Requires a positional and `--tasks`. |
 | `--run-tests` | After generating, run the produced test suites. If nothing selected can produce one, the run says so rather than exiting quietly — see below. |
 | `--no-inline-summary` | Do not drop a `<Component>.flawless.json` next to each source file. |
-| `--json` | Print a machine-readable JSON summary — `{ exitCode, outDir, results, keptScripts, testRun, errors? }` — to stdout, and nothing else there. The human summary table is suppressed; what suite runs say goes to stderr. Diagnostics stay on stderr too — see below. |
+| `--json` | Print a machine-readable JSON summary — `{ exitCode, outDir, results, keptScripts, testRun?, errors? }` — to stdout, and nothing else there. The human summary table is suppressed; what suite runs say goes to stderr. Diagnostics stay on stderr too — see below. |
 | `--nextjs [<path>]` | Treat `<path>`, or the current directory when the value is omitted, as a Next.js project: detect the router style, emit MSW handlers and swagger from `app/api` or `pages/api`, auto-set the app resolver from `app/layout.tsx` or `pages/_app.tsx`, merge the generated deps into the project's `package.json` as `devDependencies`, and place everything under `<nextRoot>/flawless/`. |
 | `--app-resolver <file>` | Override the auto-detected Next.js app resolver. It is an alias for `--provider` in Next.js mode, and the file must default-export a wrapper component. |
 | `--swagger-url <url>` | Fetch an OpenAPI spec from a live URL, for example `http://localhost:3000/api/docs` from next-swagger-doc, and prefer it over static AST inference. In `--nextjs` mode that default URL is tried automatically with a short timeout; pass `--swagger-url` to force a specific URL, or `--swagger-url=off` to skip the auto-try. |
@@ -109,9 +109,15 @@ So the blob carries `testRun`, and it has three states:
 
 | `testRun` | What happened |
 | --- | --- |
-| absent | No run was asked for. |
-| `{ mode: "generated" \| "affected", green }` | Suites ran. `green` is what folded into the exit code. |
-| `{ mode: "none", reason }` | A run **was** asked for and nothing selected could produce one. `reason` names the ids to select instead. |
+| `{ mode: "generated" \| "affected", green }` | Suites **actually ran**. `green` is what folded into the exit code. |
+| `{ mode: "none", reason }` | **Zero suites ran**, and `reason` says which of three causes it was: nothing selected generates a suite `--run-tests` executes, nothing was affected, or the selected tasks plan no run for the work that was. |
+| absent | The run never *reached* the test-run phase — which includes a request blocked by a failed task. Read absent as "look at `results`", never as "no run was asked for". |
+
+The invariant worth relying on: **`mode: "none"` if and only if nothing
+executed**, so a `green` field never appears on a phase that ran nothing. Both
+runners used to return a bare boolean, and `true` meant either "every suite
+passed" or "no suite ran" — one of them printed *"all affected suites passed"*
+having spawned nothing at all.
 
 The same sentence goes to stderr, so an interactive run is told too. And
 `errors` accounts for a failure that belongs to no task — a Next.js emit that
