@@ -28,9 +28,9 @@ Every flag that takes a value accepts both `--flag value` and `--flag=value`. An
 | `--out <dir>` | Output directory for everything the run writes. Defaults to `./.flawless`. In `--nextjs` mode it defaults to `<nextRoot>/flawless/` instead. |
 | `--tasks <csv>` | Comma-separated task ids to run, skipping the interactive menu. An unknown id is a hard error that prints the list of valid ids. |
 | `--no-interactive` | Never prompt. Requires a positional and `--tasks`. |
-| `--run-tests` | After generating, run the produced test suites. |
+| `--run-tests` | After generating, run the produced test suites. If nothing selected can produce one, the run says so rather than exiting quietly — see below. |
 | `--no-inline-summary` | Do not drop a `<Component>.flawless.json` next to each source file. |
-| `--json` | Print a machine-readable JSON summary — `{ exitCode, outDir, results, keptScripts }` — to stdout, and nothing else there. The human summary table is suppressed; what suite runs say goes to stderr. Diagnostics stay on stderr too — see below. |
+| `--json` | Print a machine-readable JSON summary — `{ exitCode, outDir, results, keptScripts, testRun, errors? }` — to stdout, and nothing else there. The human summary table is suppressed; what suite runs say goes to stderr. Diagnostics stay on stderr too — see below. |
 | `--nextjs [<path>]` | Treat `<path>`, or the current directory when the value is omitted, as a Next.js project: detect the router style, emit MSW handlers and swagger from `app/api` or `pages/api`, auto-set the app resolver from `app/layout.tsx` or `pages/_app.tsx`, merge the generated deps into the project's `package.json` as `devDependencies`, and place everything under `<nextRoot>/flawless/`. |
 | `--app-resolver <file>` | Override the auto-detected Next.js app resolver. It is an alias for `--provider` in Next.js mode, and the file must default-export a wrapper component. |
 | `--swagger-url <url>` | Fetch an OpenAPI spec from a live URL, for example `http://localhost:3000/api/docs` from next-swagger-doc, and prefer it over static AST inference. In `--nextjs` mode that default URL is tried automatically with a short timeout; pass `--swagger-url` to force a specific URL, or `--swagger-url=off` to skip the auto-try. |
@@ -95,12 +95,34 @@ Embedding the tool with `runFlawless`? `log` controls the stdout narration and i
 
 ## Running the generated tests
 
-`--run-tests` runs the suites after generation. It only fires when `perf-harness` or `unit-browser` was selected and no task failed, and in an interactive run you are asked to confirm instead. It runs `bun install` in the output directory first if `node_modules` is missing, then `test:unit`, `test:perf`, and `test:browser` as the selected tasks warrant, and prints which suites failed.
+`--run-tests` runs the suites after generation. It only fires when `perf-harness`, `unit-browser` or `e2e` was selected and no task failed, and in an interactive run you are asked to confirm instead. It runs `bun install` in the output directory first if `node_modules` is missing, then `test:unit`, `test:perf`, and `test:browser` as the selected tasks warrant, and prints which suites failed.
+
+### Exit 0 does not mean the suites passed
+
+Ask for a run that cannot happen — `--run-tests` with only `a11y` selected, say
+— and there is nothing to run: no task in that selection generates a suite. The
+run used to end there, exit 0, nothing on stderr, and a `--json` blob
+byte-for-byte the shape of a green suite run. Two very different outcomes, one
+indistinguishable result.
+
+So the blob carries `testRun`, and it has three states:
+
+| `testRun` | What happened |
+| --- | --- |
+| absent | No run was asked for. |
+| `{ mode: "generated" \| "affected", green }` | Suites ran. `green` is what folded into the exit code. |
+| `{ mode: "none", reason }` | A run **was** asked for and nothing selected could produce one. `reason` names the ids to select instead. |
+
+The same sentence goes to stderr, so an interactive run is told too. And
+`errors` accounts for a failure that belongs to no task — a Next.js emit that
+threw exits 1 with every entry in `results` still `ok: true`, and before this
+the blob had nowhere to say why. Between the two, every red run is explicable
+from the blob alone.
 
 ## Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | `0` | Every selected task succeeded. |
-| `1` | At least one task failed or threw. |
+| `1` | At least one task failed or threw, **or** a `--run-tests` / `--changed` suite run went red, **or** something outside any task failed — a broken Next.js emit, say. The code says *whether*, never *why*: read `results`, `testRun` and `errors`. |
 | `2` | Usage error: a bad flag or flag value, no positional and no interactive TTY, no files matched the glob, or nothing analysable was found. |
