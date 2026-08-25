@@ -108,8 +108,9 @@ Summary:
 ```
 
 The same information is written to disk. Each scanning task writes a JSON report under
-`<outDir>/reports/` (`Dashboard.a11y.json`, `Dashboard.perf-static.json`,
-`Dashboard.react-rules.json`), and every run writes `<outDir>/reports/summary.json`. A small
+`<outDir>/reports/`. `perf-static` reports per component (`Dashboard.perf-static.json`);
+`a11y` and `react-rules` are sweeps and write one aggregate each (`a11y.json`,
+`react-rules.json`). Every run writes `<outDir>/reports/summary.json`. A small
 `<Component>.flawless.json` is also dropped next to each analysed source file — counts per
 task, the three highest-severity findings, and the paths of the full reports — so issues
 surface where the code lives.
