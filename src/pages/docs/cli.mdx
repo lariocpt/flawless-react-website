@@ -59,10 +59,45 @@ The seven task ids are exactly these. Anything else — including plausible-look
 | `perf-static` | Reads the parsed tree — no browser, no build — and writes `reports/<Component>.perf-static.json`. Two rules fire: `perf/no-memoisation-with-children`, when a component renders three or more child components and uses none of `useMemo` / `useCallback` / `memo` / `useRef`, so every parent rerender rerenders all of them; and `perf/unresolved-prop`, when no default could be synthesised for a prop and the generated tests will pass `undefined`. |
 | `a11y` | Runs biome's accessibility rules over the entry file and every walked child, then writes `reports/<Component>.a11y.json`. Findings are filtered to the `lint/a11y` category, so correctness rules do not leak into an accessibility report, and each one carries file, line, column, rule, and severity. |
 | `react-rules` | Runs a curated set of bug-catching React and hooks rules through biome — `useExhaustiveDependencies`, `useHookAtTopLevel`, `useJsxKeyInIterable`, `noArrayIndexKey`, `noChildrenProp`, `noVoidElementsWithChildren` and friends — and writes `reports/<Component>.react-rules.json`. The config is supplied by flawless-react, so the project's own `biome.json` is bypassed and the rule set is the same on every machine. |
-| `e2e` | Emits `e2e/` — a Playwright config pointed at the target's real dev server (overridable with `FLAWLESS_E2E_BASEURL`), a `global-setup.ts` stub for login, and one spec per app-router page asserting the route loads with no console or page errors, plus up to three interactions harvested from that page's component tree. Next.js mode only. |
+| `e2e` | Emits `e2e/` — a Playwright config pointed at the target's real dev server (overridable with `FLAWLESS_E2E_BASEURL`), a `global-setup.ts` stub for login, and one spec per app-router page asserting the route loads **on the route it asked for**, with no console or page errors, plus up to three interactions harvested from that page's component tree. Next.js mode only. |
 | `load` | Emits `load/` — one `routes.pipes` with a pipe per route and per API operation, plus an `env.sh` to source for the ids, run with `bun run flawless:load`. Every run writes `last-<name>.json`; nothing writes a baseline for you. Copy a good `last-<name>.json` to `baseline-<name>.json` and later runs fail when p95 exceeds 2x it. |
 
 Selecting nothing leaves the run with `perf-harness` alone. Task order on the command line is the order they run in, and each task's findings are printed as they complete.
+
+### The e2e suite is not green before it is real
+
+A generated route spec used to claim three things: a response came back, its
+status was under 500, and the console stayed clean. **All three are true of a
+login screen.** An unauthenticated request to a protected page redirects to
+`/login`, Playwright follows the redirect, and the login page answers 200 — so
+thirty route specs could pass having tested one form nobody asked them to test.
+
+`global-setup.ts` ships as a hand-fill stub, so that was the *default* state of
+a freshly generated suite, not an edge case.
+
+Two things close it, and neither is a flag you can forget:
+
+- **Every spec asserts where it landed.** After `networkidle` it compares the
+  final pathname against the route it navigated to, trailing slashes normalised.
+  The failure names both ways out — authenticate in `global-setup.ts`, or change
+  the expectation if the redirect is what the route is supposed to do. Reading
+  after `networkidle` means a client-side `router.push` counts too, not only a
+  server 302.
+- **REPORT.md says the auth hook is still a stub**, until it isn't. The check is
+  byte-identity against what the tool emits, so it clears the moment you edit the
+  file — and filling the hook in while leaving the TODO comment does not keep
+  nagging you.
+
+The fix lives in the **route specs**, not in the setup stub, and that is
+deliberate: `global-setup.ts` is yours the moment it exists and is never
+overwritten — not even by `--force` — so a guard added there would never reach
+a single already-generated suite. Route specs *are* rewritten under `--force`,
+which is how the fix reaches suites that already exist.
+
+This one is verified by running the emitted spec in a real browser against a
+server that redirects, red before the hook is filled and green after. Reading
+the spec is exactly what let the old behaviour survive: every assertion in it
+looked perfectly reasonable.
 
 ### Task availability and biome
 
