@@ -58,6 +58,40 @@ pipeline {
                 '''
             }
         }
+        stage('Docs') {
+            steps {
+                sh '''
+                    set -eu
+                    # The site's code blocks and its CLI reference table are hand-copied from
+                    # the flawless-react docs with no generation step, so they rot silently —
+                    # this repo has no way to import parseArgs, but it can RUN the published
+                    # binary. `--check` parses a line without executing it (no file opened,
+                    # nothing spawned), so examples naming ./src/Dashboard.tsx check clean
+                    # here; `--flags` prints the real flag inventory to diff the table against.
+                    #
+                    # That second half is not redundant: a flag simply ABSENT from the table
+                    # appears in no example, so --check alone cannot see it. --roots, --exclude,
+                    # --no-default-excludes and --ci went undocumented exactly that way.
+                    #
+                    # Runs before Deploy on purpose: publishing a reference that contradicts
+                    # the tool is the failure this stage exists to stop.
+                    FR=/srv/apps/tools/flawless-react/latest/flawless-react
+                    test -x "$FR" || { echo "flawless-react binary not found at $FR"; exit 1; }
+
+                    # Same sibling-container shape as Build (the workspace is a named volume,
+                    # so docker cp both ways — never -v "$PWD:/w").
+                    CID=$(docker create -w /w oven/bun:1 sh -c '
+                        set -eu
+                        cd /w
+                        bun scripts/lint-examples.mjs /w/flawless-bin
+                    ')
+                    trap 'docker rm -f "$CID" >/dev/null 2>&1 || true' EXIT
+                    docker cp "$PWD/." "$CID:/w" >/dev/null
+                    docker cp "$FR" "$CID:/w/flawless-bin" >/dev/null
+                    docker start -a "$CID"
+                '''
+            }
+        }
         stage('Gate') {
             steps {
                 sh '''
