@@ -578,15 +578,22 @@ It is written on every run, even when only scaffolding tasks were selected.
 
 Written next to each analysed **source** file rather than into the output directory, so issues
 surface where the code lives. Each one carries the component name and file path, per-task finding
-counts plus a total, the top three findings ranked with errors before warnings, and absolute paths
-to that component's three report files.
+counts plus a total, the top three findings ranked with errors before warnings, and paths to the
+report files.
+
+Those paths are **relative to the sidecar itself** — resolve them with
+`path.resolve(dirname(sidecarPath), value)`, and the same goes for its `file` field. They were
+absolute until 0.3.0, which named the machine that ran the tool inside a file that gets committed.
+Note also that `reports.a11y` and `reports.reactRules` point at the run's single aggregate, because
+those two tasks are sweeps; only `reports.perfStatic` is per component.
 
 Pass `--no-inline-summary` to skip these.
 
 ## heaps/
 
 Not generated — created at test time by `profile/_heap.ts`, holding the `.heapsnapshot` files
-described above. Worth adding to `.gitignore` alongside `reports/` and `playwright-report/`.
+described above. Already added to your `.gitignore` by the run, alongside `reports/` and
+`playwright-report/` — a single snapshot is tens of megabytes.
 
 ## README.md
 

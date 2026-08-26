@@ -25,7 +25,7 @@ So in `--nextjs` mode flawless stops behaving like a generator of new projects a
 - wires those handlers into both the Playwright host bundle and Vitest's setup file
 - writes everything under `<nextRoot>/flawless/`, with no inner `package.json` and no inner `tsconfig.json`
 - merges the dependencies the generated suite needs into your project's `package.json` as `devDependencies`, and adds `flawless:*` scripts
-- appends the generated output paths to your `.gitignore`
+- appends the generated output paths to your `.gitignore` (this happens in every mode, not only here)
 
 Before any of that runs, the directory has to look like a Next.js project: flawless requires a `next.config.{ts,js,mjs,cjs}`, or a `next` entry under `dependencies` or `devDependencies` in `package.json`. If neither is there it exits rather than guessing.
 
@@ -210,7 +210,7 @@ The script paths are written relative to the project root, so they follow `--out
 
 ### `.gitignore`
 
-Five entries are appended, under a comment marking where they came from:
+Ten entries are appended, under a comment marking where they came from:
 
 ```
 # flawless-react — generated reports + sidecars
@@ -218,8 +218,17 @@ flawless/reports/
 flawless/heaps/
 flawless/playwright-report/
 flawless/node_modules/
+flawless/test-results/
+flawless/browser/test-results/
+flawless/e2e/test-results/
+flawless/e2e/.auth.json
+flawless/load/last-*.json
 *.flawless.json
 ```
+
+They follow `--out`, so a run with `--out qa` ignores `qa/…` rather than a `flawless/` directory it never created. `flawless/e2e/.auth.json` matters most of the ten: that is where the generated `global-setup.ts` tells you to persist a logged-in `storageState`, which is to say session cookies staged for commit.
+
+Since 0.3.0 this happens in **every** mode, not only under `--nextjs`. Outside Next.js mode the entries go to the git root — where git reads a repo-wide ignore, and where your existing one already is — falling back to the nearest `package.json`, then the output directory's parent. Before that, a plain `flawless-react "src/**/*.tsx"` run ignored nothing at all.
 
 Only entries not already present are added, so re-running does not accumulate duplicates. The generated tests, host, and mocks are *not* ignored — they are meant to be committed and edited, and `*.flawless.json` covers the per-component sidecar summaries that get dropped next to your source files.
 
