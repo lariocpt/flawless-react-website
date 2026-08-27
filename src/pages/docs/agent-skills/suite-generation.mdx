@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Suite generation and regeneration
-description: The flawless-react and flawless-regen skills in full — what each one knows, the exact task description that triggers it, and the mistakes it exists to stop.
+description: The flawless-react and flawless-regen skills in full — what each one knows, the task description that triggers it, and the mistakes it exists to stop.
 ---
 
 Two of the six skills in `.claude/skills/` cover the loop of writing a suite and running the tool
@@ -33,35 +33,28 @@ therefore protects: `budgets.json`, `host/main.tsx`, `provider.fixtures.ts`, `e2
 `e2e/params.json`, `mocks/handlers.ts`, and colocated specs. Its rule for a hand-hardened
 component spec is `--colocate`; specs written inside the out dir are rewritten.
 
-It carries the seven-task table with each output and prerequisite — `unit-browser` (Vitest +
+It carries the seven-task table with each output and prerequisite: `unit-browser` (Vitest +
 Testing Library, plus Playwright browser specs when `perf-harness` is also selected),
 `perf-harness` (the `host/` bundle, Profiler/react-scan suite, heap snapshots), `perf-static`
-(findings only, no files to run), `a11y` and `react-rules` (both need Biome in the target
-project), `e2e` (a running app and seeded data), `load` (crust). Under `--nextjs [path]` the tool
-detects the router, auto-selects a provider, writes under `&lt;root&gt;/flawless/`, merges devDeps
-and `flawless:*` scripts into `package.json`, and appends gitignore entries — which the skill
-notes happens in **every** mode, not only under `--nextjs`.
+(findings only, no files to run), `a11y` and `react-rules` (Biome in the target project), `e2e` (a
+running app and seeded data), `load` (crust). Under `--nextjs [path]` the tool detects the router,
+picks a provider, writes under `&lt;root&gt;/flawless/`, merges devDeps and `flawless:*` scripts
+into `package.json`, and appends gitignore entries — in **every** mode, not only under `--nextjs`.
 
 It explains why a provider wrapper is derived at all: an app-router `layout.tsx` is usually an
 async server component importing `next/font` or `next/headers`, unusable under jsdom, so flawless
 builds `flawless/provider.tsx` from the JSX chain enclosing the children slot, keeping only
 `"use client"` components and literal attributes and turning what it drops into a `TODO(flawless)`
 comment. For catch-all APIs (Hono, tRPC) that static route walking cannot see, it points at
-`--api openapi.json` or `--swagger-url`, with `--swagger-url=off` to skip the live probe.
+`--api openapi.json`, with `--swagger-url=off` to skip the live spec probe.
 
 It then lists exactly what a generated unit spec asserts: the rendered root tag when the analyser
 could pin it down; `children` and `className` passthrough **only when the value provably reaches
 the DOM**, because accepting a prop is not rendering it; for a cva or `tv` component, that every
 option of every key renders a *distinct* class list and never a specific Tailwind token, because
-`cn()` is usually tailwind-merge; one test per detected interaction with negative assertions on
-every other handler prop; success / loading / error / empty cases per `useEffect` fetch; and
-`await Component(props)` for async server components, which get no browser spec at all.
-
-The rest is spec placement, e2e and load, the `perf-static` rules
-(`perf/hook-missing-dependency`, `perf/unstable-child-prop`, `perf/set-state-in-render`,
-`perf/unresolved-prop`), `runFlawless`, troubleshooting keyed on real error strings, and limits —
-prop types resolve two hops out including workspace packages, `Omit`/`Pick`/`Partial` and anything
-in `node_modules` do not.
+`cn()` is usually tailwind-merge; one test per detected interaction, with negative assertions on
+every other handler prop; success / loading / error / empty cases per `useEffect` fetch. The rest
+is spec placement, the `perf-static` rules, `runFlawless`, and limits.
 
 ```bash
 # one component, unit specs only
@@ -75,10 +68,9 @@ flawless-react "src/app/dashboard/page.tsx" --nextjs . --api openapi.json --swag
 
 **A `test.skip` with a reason is the intended output.** When nothing is derivable the generator
 emits a skip naming which preconditions failed, and the skill is explicit: do not "fix" it by
-deleting the assertion or by hand-writing one. Fix the generator, or give the component the
+deleting the assertion or hand-writing one. Fix the generator, or give the component the
 `data-testid` or fixture the skip asks for. Same for `TODO(flawless)` markers — a marker instead
-of a silently passing assertion. The loop is run the suite, fill the TODOs with real fixtures,
-rerun.
+of a silently passing assertion. The loop is run the suite, fill the TODOs, rerun.
 
 **The mock allowlist is short on purpose.** Client specs mock `next/navigation`, `next/headers`,
 `server-only`, `next/link`, `next/font/*` and any `"use server"` module — nothing else. A broader
@@ -107,31 +99,28 @@ REPORT.md rather than stdout. Three triggers: **before any regeneration over an 
 Its centre is a four-row ownership table. Write-once files — `budgets.json`, `host/main.tsx` (the
 wrapper only; the `host/registry.ts` beside it regenerates), `provider.fixtures.ts`,
 `e2e/global-setup.ts`, `mocks/handlers.ts`, `mock/routes.ts` — are kept on a re-run **and kept
-under `--force`**. Merge-kept files (`e2e/params.json`, `load/routes.pipes`) are kept on a re-run
-and merged under force, so edited rates, hand-added flows and pipes you commented out yourself
-survive. Colocated specs are kept on a re-run, stamp-checked under force. Everything else —
-out-dir specs, configs, generated prose, REPORT.md, sidecars — is rewritten either way.
+under `--force`**. Merge-kept files (`e2e/params.json`, `load/routes.pipes`) are merged under
+force, so edited rates, hand-added flows and pipes you commented out survive. Colocated specs are
+stamp-checked. Everything else — out-dir specs, configs, generated prose, REPORT.md, sidecars — is
+rewritten either way.
 
 The no-force run **exits 0**. Every task including `perf-harness` refreshes its derived files as a
-fresh scaffold would, the standalone suite's `package.json` is merged so your fields win, and a
-`flawless:*` script you customised is kept unless its value is one of the tool's own spellings —
-kept keys listed in REPORT.md as `&gt; Kept script(s): ...`. Emission is deterministic, so a
-same-version refresh usually diffs nothing; after an upgrade expect the derived files and the
-version banner on the first line of `playwright.config.ts` to move. An exit 1 is a real failure,
-never a "directory not empty" refusal.
+fresh scaffold would; the suite's `package.json` is merged so your fields win, and a `flawless:*`
+script you customised is kept unless its value is one of the tool's own spellings. Emission is
+deterministic, so a same-version refresh usually diffs nothing; after an upgrade expect the derived
+files and the version banner on line one of `playwright.config.ts` to move.
 
-The stamp section is the part with teeth. Every colocated spec opens with
+The stamp is the part with teeth. Every colocated spec opens with
 `// @flawless-generated sha256:&lt;hex16&gt; flawless-react@&lt;version&gt;`, hashing everything
 below the line and recomputed after the run's style pass so a formatted spec still reads as
-untouched. Under `--force`: stamp matches body means rewritten; stamp mismatch means you edited or
-reformatted it, so it is kept and listed as hand-edited; no stamp means kept and listed as
-pre-stamp. The escape hatch for both is to delete the file and re-run. Kept files also drop out of
-the `handWork` tallies — a discarded render's TODOs are not your debt.
+untouched. Under `--force`: stamp matches body means rewritten; a mismatch means you edited it, so
+it is kept and listed as hand-edited; no stamp means kept and listed as pre-stamp. The escape hatch
+for both is to delete the file and re-run.
 
 `--changed` narrows only the **run**: vitest `related` walks the module graph, Playwright gets an
 anchored `--grep`, e2e runs when an affected component renders on a route. The perf harness is
-kept, reporting `status: "kept"` and a summary naming the version that generated the suite against
-the version now running.
+kept, reporting `status: "kept"` and naming the version that generated the suite against the
+version now running.
 
 ```bash
 flawless-react "src/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser,perf-static,a11y,react-rules,e2e,load --changed --no-interactive
@@ -149,13 +138,12 @@ e2e route specs and the provider wrapper have no such guard.
 alone, and a harness-only selection has no unit or e2e suites for the affected run to run — which
 is exactly why a `--changed` run can look like it did nothing.
 
-**Never take stdout as evidence.** Write evidence to files and check the disk: for programmatic
-runs call `runFlawless` or `runCore` and write the exit code, out dir and results to a result
-file; REPORT.md is rewritten every run, so a missing REPORT.md diff means the run did not happen
-or ran somewhere else; and `git status --porcelain` in the target must match the expected touch
-surface. The failure behind that discipline — in Next.js mode the default out dir resolves against
-the target root, so a scratch run from the wrong cwd rewrites another project's `package.json`
-scripts and reports success.
+**Never take stdout as evidence.** Write evidence to files and check the disk: call `runFlawless`
+or `runCore` and write the exit code, out dir and results to a result file; REPORT.md is rewritten
+every run, so a missing REPORT.md diff means the run did not happen or ran somewhere else; and
+`git status --porcelain` must match the expected touch surface. In Next.js mode the default out dir
+resolves against the target root, so a run from the wrong cwd rewrites another project's scripts
+and reports success.
 
 ## Installing them
 
@@ -182,5 +170,5 @@ Project scope wins when a skill of the same name exists in both.
 ## Related
 
 - [Agent skills](/docs/agent-skills/) — all six, and why the tool ships them
-- [Your first suite](/docs/recipes/first-suite/) — the generation loop these skills describe, written for a human reader
+- [Your first suite](/docs/recipes/first-suite/) — the generation loop these skills describe, for a human reader
 - [Regenerate without losing work](/docs/recipes/safe-regeneration/) — the same lifecycle table, with the diffs to expect

@@ -43,12 +43,11 @@ suite fails naming its escapes instead of quietly testing the login screen. Unti
 is filled, REPORT.md's hand-work table says so; the check is byte-identity against the stub,
 so it clears the moment you edit the file.
 
-The skill then bounds that claim, because an overclaim here is the same bug in a different
-hat. The assertion catches redirects that **change the URL** and have landed by the time the
-spec looks — a server 3xx, a client-side navigation completing before `networkidle` settles.
-It does not catch a middleware *rewrite* serving the login page at the requested path, a 401
-body, or a redirect firing later than the spec waited. A 401 usually still reds the spec,
-through the console-error check.
+The skill bounds that claim, because an overclaim here is the same bug in a different hat.
+The assertion catches redirects that **change the URL** and have landed by the time the spec
+looks — a server 3xx, a client-side navigation completing before `networkidle` settles. It
+does not catch a middleware *rewrite* serving the login page at the requested path, a 401
+body, or a redirect firing later than the spec waited.
 
 A route that redirects **on purpose** — a default sub-tab, a locale landing — would
 otherwise fail forever. Record the destination in `flawless/e2e/params.json` under
@@ -76,20 +75,19 @@ bun run flawless:load    # routes.setup.ts seeds the ids and proves the auth
 `next dev` compiles routes on demand, so against a dev server the first request to each
 route measures the compiler. Check the banner says `next start`; if the app's `start` script
 has no port flag, `:3000` may collide, and `PORT=3001` wins. `LOAD_AUTH` is a **header
-line** — for cookie sessions, `cookie: session=` plus the value from the e2e run's
-`.auth.json`, not a Bearer token.
+line** — for cookie sessions, `cookie: session=` plus the value from `.auth.json`, not a
+Bearer token.
 
 You no longer source `env.sh`. `flawless/load/routes.setup.ts` runs first (crust awaits a
 pipes file's sibling setup module), seeds every `LOAD_<PARAM>` from `params.json`, and
-throws if it seeded none. `env.sh` needed `jq` and, without it, exported nothing *silently*
+throws if it seeded none — `env.sh` needed `jq` and, without it, exported nothing *silently*
 while two thirds of the pipes measured the 404 handler.
 
-That same module probes every static route and throws if one lands somewhere else — the
-check is enforced, not advised. An expired cookie redirects to a login page that answers
-200, so `expect 200` passes and the whole file reports healthy percentiles for a login form.
-The skill carries the measured case: 20/20 status 200, p50 19.7 ms, exit 0, every request
-served `/login`. Record a by-design redirect under `landing`. The module is **write-once**,
-so a check that knows your app will not be overwritten.
+That same module probes every static route and throws if one lands elsewhere; the check is
+enforced, not advised. An expired cookie redirects to a login page that answers 200, so
+`expect 200` passes and the whole file reports healthy percentiles for a login form. The
+skill carries the measured case: 20/20 status 200, p50 19.7 ms, exit 0, every request served
+`/login`. The module is **write-once**, so a check that knows your app survives.
 
 ### 3. A green pipe run means nothing until you have probed it
 
@@ -103,16 +101,16 @@ curl -s -H "$LOAD_AUTH" "$LOAD_BASE/dashboard/buildings/$LOAD_ID" | grep -ci "lo
 ```
 
 The curl must return real page HTML — tens of KB — and the grep must find no login form.
-Afterwards the same trap wears a second face: a p95 that is suspiciously fast is measuring
-the 404 or the redirect. Real SSR routes on a dev box sit in the 10–15 ms p95 range, not
-2 ms. Compare against the committed baselines — each pipe gates p95 against
-baseline-&lt;name&gt;.json, a missing baseline passes **by design** because the first run arms
-it, and you arm one by copying a good last-&lt;name&gt;.json. Refresh a baseline only when you
-can explain the shift in the commit body, and never refresh a batch to make a red run green.
+Afterwards the trap wears a second face: a p95 that is suspiciously fast is measuring the
+404 or the redirect. Real SSR routes on a dev box sit in the 10–15 ms p95 range, not 2 ms.
+Compare against the committed baselines — each pipe gates p95 against baseline-&lt;name&gt;.json,
+a missing baseline passes **by design** because the first run arms it, and you arm one by
+copying a good last-&lt;name&gt;.json. Refresh only when you can explain the shift in the commit
+body, and never refresh a batch to make a red run green.
 
-`--force` **merges** `routes.pipes` rather than overwriting: edited rates, hand-added flows
-and pipes you commented out yourself all survive. Pipes with unfilled ids arrive
-commented-out above a line naming the `params.json` key to fill.
+`--force` **merges** `routes.pipes`: edited rates, hand-added flows and pipes you commented
+out yourself all survive, and pipes with unfilled ids arrive commented-out above a line
+naming the `params.json` key to fill.
 
 ## flawless-api
 
@@ -161,13 +159,13 @@ whole of stdout, never a line of it — and never scrape the human console outpu
 
 **stderr still carries diagnostics**: skipped files, an unparseable spec, script collisions,
 a failed Next.js emit. Those lines are the only account of work the run quietly dropped, so
-capture them. Two flags decide what speaks, and they answer different questions. **`log`** —
-may this run write to stdout? Off by default programmatically, gating the progress narration
-*and* the per-file findings listing; `--json` turns it off because stdout must parse whole.
-**`quiet`** — suppress `runCore`'s own stderr diagnostics? Off by default, so the warnings
-do speak even when `log` is off. One flag for both is how `--ci` became the mode that lost
-its warnings. `quiet` is deliberately narrow: it silences `runCore`'s `warn()` lines, not
-stderr as a whole. Redirect fd 2 if you need silence.
+capture them. Two flags decide what speaks. **`log`** asks may this run write to stdout —
+off by default programmatically, gating the progress narration *and* the per-file findings
+listing, and `--json` turns it off because stdout must parse whole. **`quiet`** asks whether
+`runCore`'s own stderr diagnostics are suppressed — off by default, so the warnings do speak
+even when `log` is off. One flag for both is how `--ci` became the mode that lost its
+warnings. `quiet` silences `runCore`'s `warn()` lines, not stderr as a whole; redirect fd 2
+if you need silence.
 
 ### 3. Exit 1 has two causes, and neither is a crash
 
@@ -186,11 +184,10 @@ run in the suite lifecycle. A re-run over an existing suite is not a failure: it
 `ok: true` plus `"refreshed"`, and exits 0. A `--changed` run keeps the harness (`ok: true`,
 `"kept"`, outputs empty).
 
-One more trap the skill names: cwd matters in Next.js mode. `nextjs: "."` resolves against
-the process cwd, and the run merges `flawless:*` scripts into **that** root's
-`package.json`, so pin it with `process.chdir` or absolute paths. The merge never clobbers a
-user-customised `flawless:*` value — only the tool's own recognised spellings upgrade, and
-kept keys surface in `CoreResult.keptScripts`, the `--ci` blob and REPORT.md.
+One more trap: cwd matters in Next.js mode. `nextjs: "."` resolves against the process cwd,
+and the run merges `flawless:*` scripts into **that** root's `package.json` — pin it with
+`process.chdir` or absolute paths. The merge never clobbers a user-customised `flawless:*`
+value; kept keys surface in `CoreResult.keptScripts`, the `--ci` blob and REPORT.md.
 
 ### The analysis surface
 
@@ -207,9 +204,9 @@ reporting. The honesty contract worth preserving in anything you build on it: an
 that fails is **recorded** — `unresolvedProps`, `unresolvedTypes`, `uncertain` on data deps
 — never silently empty. Treat an empty shape with empty unresolved records as a bug to
 report, not a component with no props. Tasks are a registry, `findTask(id).run(ctx)`
-returning a `TaskResult`, and a custom task is a new entry in `src/tasks/index.ts` honouring
-one rule: write findings and outputs, throw only for genuine failure, and make `ok` mean
-what it says.
+returning a `TaskResult`; a custom task is a new entry in `src/tasks/index.ts` honouring one
+rule — write findings and outputs, throw only for genuine failure, make `ok` mean what it
+says.
 
 ## Installing them
 
