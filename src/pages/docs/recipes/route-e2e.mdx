@@ -1,0 +1,262 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Route e2e against a seeded database
+description: One Playwright spec per app-router page, a write-once global-setup.ts login, params.json ids and landing overrides, the landing assertion that catches an expired session, and --changed route narrowing.
+---
+
+**Goal:** drive every app-router page in a real browser, against a seeded database, as a really logged-in user — and have the suite go red the moment any one of those three stops being true.
+
+## The prerequisites are the recipe
+
+The `e2e` task is Next.js-only and runs against *your* app, not a mock. Two things are yours to arrange before a single spec means anything:
+
+```bash
+bun run db:up && bun run db:migrate && bun run db:seed   # real rows, with ids you can read back
+bun run dev                                             # the app, on the port your dev script names
+```
+
+Then generate:
+
+```bash
+bunx flawless-react "src/app/**/page.tsx" --nextjs . --tasks e2e --no-interactive
+```
+
+Every analysed entry that resolves to an app-router `page.tsx` becomes one spec; everything else in the glob is ignored by this task, so `"src/**/*.tsx"` is fine too — and is what you want when `e2e` shares a run with `unit-browser`. Both ways of getting nothing say so: without `--nextjs` the task fails with `not a Next.js run`, and a glob that matched no page reports `no analysed entry is an app-router page.tsx — config emitted, no specs`.
+
+### Why the real app, and not MSW
+
+MSW can only intercept `fetch`. A React server component that queries the database directly — the ordinary shape in app-router code — never issues one, so an MSW-backed e2e would render against the real data anyway while *claiming* to be mocked. Two honest options remain: the real dev server with seeded data, or an instrumentation hook loading `msw/node` on the server, which is invasive and still blind to direct DB access. v1 picks the first. Nothing is stubbed, and nothing pretends to be.
+
+## What it emits
+
+```text
+flawless/e2e/
+├── playwright.config.ts        # boots `bun run dev`; port read from that script
+├── global-setup.ts             # your login — write-once, never overwritten
+├── params.json                 # seeded ids + landing overrides — merge-kept
+├── params.ts                   # the resolver every spec imports
+├── README.md
+├── dashboard.spec.ts
+└── dashboard-buildings-id.spec.ts
+```
+
+…plus a `flawless:e2e` script on your project's own `package.json`. The port comes out of your `dev` script — a `-p`, a `--port`, or a leading `PORT=` — and falls back to 3000; `webServer` boots that script with `reuseExistingServer: true`, so a dev server already running is used rather than fought with.
+
+Each spec navigates its route, asserts a response came back, asserts the status is under 500, waits for `networkidle`, asserts **it is still on the route it asked for**, and requires an empty `pageerror` + console-error list. When the page's tree contains click handlers, up to three are replayed in a second test — each behind a `count()` and `isVisible()` guard, so a spec never reds because an element sits behind state it did not open.
+
+Who owns which file, because that decides whether a fix ever reaches you:
+
+| File | Plain re-run | `--force` |
+| --- | --- | --- |
+| `playwright.config.ts`, `params.ts` | rewritten | rewritten |
+| `<route>.spec.ts`, `README.md` | kept | **rewritten** |
+| `global-setup.ts` | kept | kept — write-once, under every flag |
+| `params.json` | merged, additive | merged; only empty slots pruned |
+
+## The trap: a login page answers 200
+
+A protected route 302s to `/login`. `page.goto` follows the redirect. The login page renders, answers **200**, and logs nothing to the console. "A response came back", "not 5xx" and "no console errors" are all true — of somebody else's form. Thirty route specs go green having tested one login screen.
+
+That is the *default* state of a fresh suite, not an edge case: `global-setup.ts` ships as a hand-fill stub, so an untouched suite runs unauthenticated. Two things close it, and neither is a flag you can forget.
+
+**Every spec asserts where it landed.** After `networkidle` it compares the final pathname with the route it navigated to, trailing slashes normalised:
+
+```text
+Running 39 tests using 1 worker
+
+  ✘  1 dashboard.spec.ts:38:3 › GET /dashboard › renders without console or page errors (1.9s)
+
+  1) dashboard.spec.ts:38:3 › GET /dashboard › renders without console or page errors ──────────
+
+    Error: navigation left the route: asked for `/dashboard`, landed on `/login`. If this is
+    an auth wall, authenticate in flawless/e2e/global-setup.ts — an unauthenticated request
+    redirects to a login page, which answers 200, so the status check above cannot see it. If
+    the redirect is what this route is SUPPOSED to do, record the destination in
+    flawless/e2e/params.json under "landing": { "/dashboard": "/login" } — that file survives
+    --force, this spec does not.
+
+    Expected: "/dashboard"
+    Received: "/login"
+```
+
+The check lives in the **route specs**, not in the setup stub, and that is deliberate: `global-setup.ts` is yours the moment it exists and is never overwritten, so a guard added there would never reach an already-generated suite. Route specs *are* rewritten under `--force`, which is how the fix travels.
+
+The interaction test carries the same assertion, and it matters more there: every harvested click is visibility-guarded, so on a login screen that test does *nothing* and then reports an empty error list — a green claim about work that never happened.
+
+**Scope, stated precisely, because an overclaim here is the same bug wearing a different hat.** It catches redirects that *change the URL* and have landed by the time the spec looks: a server 3xx, and a client-side navigation that completes before `networkidle` settles. It does **not** catch a middleware *rewrite* serving the login page at the requested path, a 401 body, or a redirect that fires later than the spec waited. (A 401 usually still reds the spec — through the console-error check, not this one.)
+
+**REPORT.md says the hook is still a stub**, until it isn't:
+
+```text
+## Hand-work remaining
+
+| Kind | Markers | Example file |
+| --- | ---: | --- |
+| `e2e-auth-unfilled` | 1 | `flawless/e2e/global-setup.ts` |
+```
+
+The test is byte-identity against the emitted stub, not a grep for the TODO comment, so it clears the moment you edit the file — filling the hook in while leaving the comment does not nag you forever. One row per run, not one per route: an unfilled stub is a single fact about the suite.
+
+## Fill in global-setup.ts once
+
+The stub writes an empty storage state, so the config's `storageState` reference always resolves, and carries a worked example in a comment. Replace it with a real login as a **seeded** user:
+
+```ts
+import { request } from "@playwright/test";
+import path from "node:path";
+
+export default async function globalSetup(config: { rootDir: string }): Promise<void> {
+  const baseURL = process.env.FLAWLESS_E2E_BASEURL ?? "http://localhost:3001";
+  const ctx = await request.newContext({ baseURL });
+  const res = await ctx.post("/api/auth/login", {
+    data: { email: "seed@example.test", password: "seeded-password" },
+  });
+  if (!res.ok()) throw new Error(`login failed: ${res.status()} ${await res.text()}`);
+
+  // The anti-vacuous guard. Keep it.
+  const probe = await ctx.get("/dashboard");
+  if (new URL(probe.url()).pathname.startsWith("/login")) {
+    throw new Error("logged in, but /dashboard still lands on /login — reseed the database");
+  }
+
+  await ctx.storageState({ path: path.join(config.rootDir, ".auth.json") });
+  await ctx.dispose();
+}
+```
+
+That throw is the point of the file. When it fires the seed has drifted — wrong user, wrong password, an unmigrated database — and the fix is the seed, never the guard.
+
+`config.rootDir` is the config's own directory, handed in at runtime — used rather than `__dirname`, which does not exist when a `"type": "module"` app loads this file as ESM. `.auth.json` holds session cookies, so the run adds it to your `.gitignore` rather than leaving a logged-in session staged for commit.
+
+## Real ids, not guessed ones
+
+Dynamic segments read `flawless/e2e/params.json`:
+
+```json
+{
+  "defaults": { "buildingId": "", "id": "3f1c0f8a-6c1e-4a5e-9a1f-0f8a6c1e4a5e" },
+  "routes": { "/dashboard/buildings/[id]": { "id": "9b2d41e0-7c33-4d9a-b0aa-11e0d41e9b2d" } },
+  "landing": {}
+}
+```
+
+`params.ts` takes the first hit of: `FLAWLESS_E2E_<PARAM>` from the environment, `routes[<route>][<param>]` — for a route needing a consistent *set*, a poll that really belongs to that building — `defaults[<param>]`, the usual one-seeded-record case, then the legacy `FLAWLESS_E2E_ID`.
+
+When nothing resolves, the spec **skips with the reason** instead of navigating:
+
+```text
+  -  7 dashboard-buildings-id.spec.ts:41:3 › GET /dashboard/buildings/[id] › renders without console or page errors
+
+  38 passed, 1 skipped (27.9s)
+```
+
+The skip's annotation is `no id fixture for /dashboard/buildings/[id] — fill flawless/e2e/params.json`. The earlier design put a `REPLACE_WITH_SEEDED_ID` placeholder in the URL, which navigated to a path that 404s — so a missing fixture was reported as an application bug, thirty times over.
+
+Two merge rules before you regenerate: **nothing you typed is ever removed** — a route this run did not analyse keeps its ids, because a narrower glob is a smaller view of the project, not an instruction to discard the rest — and **`--force` prunes only entries that hold nothing**. Blank slots otherwise survive: the `load` task adds them for API-route segments the page router never sees.
+
+## A route that redirects on purpose
+
+A default sub-tab or a locale landing would otherwise fail the landing assertion forever. Record where the route really ends up, keyed by route template:
+
+```json
+{ "landing": { "/dash": "/dash/overview" } }
+```
+
+There, and *not* in the spec: `--force` regenerates specs and leaves `params.json` alone, so an expectation recorded in a spec is advice the next regeneration deletes. The tool never writes an entry here — the map exists only to carry what you tell it. The `load` task's `routes.setup.ts` reads the same map when it probes that `LOAD_AUTH` still authenticates, so the two suites cannot drift apart over which redirects are legitimate.
+
+## Flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--tasks e2e` | `perf-harness` | Selecting nothing selects `perf-harness`, not everything. Combine freely: `--tasks e2e,load`. |
+| `--nextjs [<path>]` | off | Required — without it the task fails rather than guessing a route table. |
+| `--force` | off | Rewrites the route specs, which is how a newer version's assertion reaches an existing suite. Leaves `global-setup.ts` alone; merges `params.json`. |
+| `--changed [REF]` | off (`HEAD`) | Narrows the *run* to affected routes; generation stays complete. |
+| `--run-tests` | off | Runs `flawless:e2e` after generating, installing chromium first unless `FLAWLESS_SKIP_BROWSER_INSTALL=1`. |
+| `--out <dir>` | `<project>/flawless` | The specs, the gitignore entries and the `flawless:e2e` script all follow it. |
+
+And four environment variables, read at run time rather than at generation time: `FLAWLESS_E2E_BASEURL` points the suite elsewhere and **disables the config's `webServer`**, so nothing is booted for you; `FLAWLESS_E2E_<PARAM>` overrides one dynamic segment; `FLAWLESS_E2E_ID` is the legacy single-id fallback; `FLAWLESS_SKIP_BROWSER_INSTALL=1` skips the chromium install attempt.
+
+## What you'll see
+
+Generation names the routes it covered:
+
+```text
+Summary:
+  [ok] e2e            files:6 findings:0  e2e specs for 39 route(s): /, /dashboard, /dashboard/buildings/[id], …
+```
+
+The suite itself, green, against a seeded database with the hook filled in:
+
+```text
+Running 39 tests using 1 worker
+
+  ✓  1 dashboard.spec.ts:38:3 › GET /dashboard › renders without console or page errors (1.4s)
+  ✓  2 dashboard.spec.ts:52:3 › GET /dashboard › basic interactions from analysis stay error-free (1.9s)
+  …
+
+  39 passed (1.4m)
+```
+
+39/39 is what the tool's own dogfood app reports against a seeded Postgres with a real login — reached by first being red for the right reason.
+
+## Narrowing the run with --changed
+
+A full route suite is the wrong unit of work when one component changed:
+
+```bash
+bunx flawless-react "src/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser,e2e --changed --no-interactive
+```
+
+Analysis and generation stay complete — only the **run** narrows. For e2e the selection is not a path filter: a route is affected when its page's tree *renders* a changed component. Editing a leaf `StatusPill` changes what every page rendering it produces without touching one of those pages' files, which is exactly the relationship a path filter cannot see.
+
+Narrowing is `--grep` over the emitted titles, which is why every spec's route rides on its `describe` block rather than on one test's title:
+
+```text
+› bun run flawless:e2e -- --grep \bGET (/dashboard|/dashboard/buildings/\[id\]) 
+
+Running 4 tests using 1 worker
+  …
+all affected suites passed
+```
+
+Name a ref — `--changed origin/main` — to compare against a branch point rather than the worktree. Two outcomes get their own sentences, because both used to be reported as plain success: `changed: nothing affected — no specs to run`, and `changed: 3 affected component(s) and 0 affected route(s), but the selected task(s) (e2e) plan no run for them` — your edit touched components that sit on no page route. Neither is "the suites passed".
+
+## Contract-checked runs
+
+Because `FLAWLESS_E2E_BASEURL` skips the built-in `webServer`, you can put [crust](https://crust.in.drlario.org)'s validating proxy between the browser and the app, then assert that nothing the UI triggered violated your OpenAPI spec:
+
+```bash
+crust -c 'mock-server --swagger openapi.json --port 4747 --proxy http://localhost:3001' &
+FLAWLESS_E2E_BASEURL=http://localhost:4747 bun run flawless:e2e
+crust -c 'GET :4747/__crust/violations | (v => v.violations.filter(x => x.direction === "response")) | assert (a => a.length === 0)'
+```
+
+The suite is unchanged; the proxy audits every response it forwards. Boot the app yourself here — with the base URL set, the config boots nothing.
+
+## Limits
+
+Honest about what doesn't work yet:
+
+- **A middleware rewrite defeats the landing check.** Serving the login page *at* the requested path leaves the URL alone, and nothing in the spec tells that apart from the real page.
+- **A redirect that fires after `networkidle`** has not happened yet when the assertion reads the URL.
+- **The interactions are clicks only, up to three**, harvested from `onClick` handlers in the page's tree. Forms, drag handles and keyboard flows are yours to write — and a click the source does not name is dropped rather than guessed at, since `page.locator("button").first()` would claim the first button is the one the analysis found a handler on.
+- **No parallelism, and no seeding.** The config pins `workers: 1` — the specs share one dev server and one storage state — and the tool boots nothing itself: migrations and seed data are outside its world.
+
+## Exit codes
+
+| Situation | Exit |
+| --- | --- |
+| Generation clean, or every affected suite green | `0` |
+| A task failed — `e2e` without `--nextjs`, say — or a suite ran and failed | `1` |
+| Bad arguments, an unknown task id, an unresolvable `--changed` ref | `2` |
+| `bun run flawless:e2e` on its own | Playwright's: `1` on any failing test |
+
+Exit 0 from the generator means the *files* were written, not that anything passed. `--json` carries a `testRun` field whose `mode: "none"` means zero suites executed — it exists so exit 0 cannot be read as "the suites were green".
+
+## Related
+
+- [Load pipes with crust](/docs/recipes/crust-load-pipes/) — the same ids and `landing` map, pointed at a production build with percentile gates instead of assertions.
+- [Adopt it in a Next.js app](/docs/recipes/nextjs-adoption/) — start there if `--nextjs` has never run here: router detection, the app resolver, the `flawless:*` scripts.
+- [Regenerate without losing work](/docs/recipes/safe-regeneration/) — the full generated/refreshed/kept matrix behind the ownership table, before you type `--force`.
+- [Wire it into CI](/docs/recipes/ci-integration/) — the `--ci` JSON contract, and why a green exit code needs `testRun` to mean anything.

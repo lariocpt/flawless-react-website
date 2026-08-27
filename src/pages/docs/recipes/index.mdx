@@ -1,0 +1,62 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Recipes
+description: End-to-end flawless-react workflows you can lift directly — first suite, Next.js adoption, colocated specs, mocks with real shapes, compound parts, route e2e, crust load pipes, CI wiring, findings triage and safe regeneration.
+---
+
+import RecipeCard from '../../../components/RecipeCard.astro';
+
+Task-shaped walkthroughs. Each one takes a single job — get a first suite running, stop
+mocks returning `&#123;&#125;`, make a load run mean something — and follows it from the
+smallest working command to the version you would put in CI, with the failure modes named
+along the way.
+
+The reference pages describe *what the tool does*. These describe *what you do*.
+
+<div class="recipe-grid">
+  <RecipeCard href="/docs/recipes/first-suite/" title="Your first suite" tag="Start">
+    Point it at one <code>.tsx</code> file and get a runnable Playwright + Vitest project — picking tasks, reading the first findings, and the three flags worth knowing before any others.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/nextjs-adoption/" title="Adopt it in a Next.js app" tag="Next.js">
+    <code>--nextjs</code> end to end: router detection, the auto-detected app resolver, API routes becoming swagger plus MSW handlers, and the <code>flawless:*</code> scripts that survive your edits.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/colocated-specs/" title="Colocated specs you can hand-harden" tag="Suites">
+    Specs beside your sources, each stamped with a content hash — so <code>--force</code> can tell "still exactly what we generated" from "someone worked on this", and only rewrites the first.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/mocking-data-and-actions/" title="Mocks with real shapes" tag="Mocks">
+    Where the realistic fixture comes from: a server action's own literal return, a declared <code>Promise&lt;T&gt;</code>, or an OpenAPI example — each emitted with a provenance comment, and an honest TODO where inference refused to guess.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/compound-components/" title="Compound parts that need a Root" tag="Suites">
+    Why <code>&lt;Dialog.Content&gt;</code> throws on its own, and how a part whose file exports its family gets mounted the way call sites do — with portal-aware assertions.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/route-e2e/" title="Route e2e against a seeded database" tag="E2E">
+    Real ids instead of guessed ones, a global-setup login, and the trap that makes a whole suite green against a login page it never meant to measure.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/crust-load-pipes/" title="Load pipes with crust" tag="Load">
+    The <code>load</code> task emits <a href="https://crust.in.drlario.org">crust</a> pipelines for your routes and the GET APIs your components fetch — with a setup module that fails loudly rather than measuring the 404 handler.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/ci-integration/" title="Wire it into CI" tag="CI">
+    The <code>--ci</code> JSON contract, the stdout/stderr split an unattended caller depends on, <code>--changed</code> narrowing, and why exit 0 does not by itself mean the suites passed.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/triage-findings/" title="Triage the findings" tag="Reports">
+    perf-static, a11y and react-rules: what each looks for, where the findings land, and how to decide between fixing one and suppressing it without the two linters disagreeing.
+  </RecipeCard>
+
+  <RecipeCard href="/docs/recipes/safe-regeneration/" title="Regenerate without losing work" tag="Lifecycle">
+    generated, refreshed, kept — what a plain re-run rewrites, what <code>--force</code> adds, the three tiers of file ownership, and the one migration no flag will do for you.
+  </RecipeCard>
+</div>
+
+## If you are driving this with an agent
+
+Every recipe here is also encoded as a Claude Code skill that ships with the tool, so an
+agent working in your repo loads the same rules on demand instead of rediscovering them.
+See [Agent skills](/docs/agent-skills/).

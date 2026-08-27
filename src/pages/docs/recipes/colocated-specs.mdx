@@ -1,0 +1,214 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Colocated specs you can hand-harden
+description: --colocate placement beside your sources, the @flawless-generated sha256 stamp and what it hashes, the four-state --force matrix, delete-to-regenerate, hand-work tallies, and the summary that names kept specs.
+---
+
+**Goal:** move the generated unit specs next to the components they test, edit them into real tests, and keep re-running the generator afterwards — with a stamp on each file's first line deciding, per file, whether the tool still owns it.
+
+The failure mode this prevents is quiet and expensive. You spend an afternoon filling fixtures in `flawless/unit/InvoiceRow.test.tsx`, re-run the tool a week later for a new component, and the afternoon is gone — every spec inside the out dir is *derived*, and derived files are rewritten every run. That is deliberate: a frozen file never receives a later version's improvements. The escape is not "don't re-run", it is to put the specs somewhere the tool treats as yours.
+
+## Where the specs land
+
+```bash
+flawless-react "src/**/*.tsx" --colocate --tasks perf-harness,unit-browser --no-interactive
+```
+
+Every analysed component whose source lives under the config root gets a spec written **beside its source** as `<file>.flawless.test.tsx` — `src/components/AlertBanner.tsx` yields `src/components/AlertBanner.flawless.test.tsx`. A file exporting several components gets one spec each, disambiguated by name: a shadcn `card.tsx` exporting seven parts yields `card.CardHeader.flawless.test.tsx`, `card.CardTitle.flawless.test.tsx` and so on, so they cannot collide.
+
+`--colocate` moves *only* the per-component unit specs. The config, `setup.ts`, the mocks, the provider wrapper and the perf host stay in the out dir and keep regenerating. Browser specs (`flawless/browser/<Component>.spec.ts`) are never colocated — they drive the profiling host, rebuilt every run, so freezing one would produce a spec that no longer matches what it mounts.
+
+### Flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--colocate` | off | Write unit specs beside their source as `<name>.flawless.test.tsx`. Existing ones are kept unless `--force`. |
+| `--force` | off | Regenerate what a plain re-run keeps — colocated specs, e2e route specs, the derived provider wrapper. Stamp-checked for colocated specs. |
+| `--tasks <csv>` | interactive | `unit-browser` emits these specs. `--colocate` on a task list without it writes nothing new. |
+| `--out <dir>` | `./.flawless` | The config root is the out dir's *parent*. A source outside it cannot colocate — see Limits. |
+| `--nextjs [<path>]` | off | Places everything under `<nextRoot>/flawless/` and merges a `flawless:unit` script into your `package.json`. |
+| `--changed [REF]` | off | Narrows the run, never the generation. |
+| `--no-interactive` | off | Required in CI; without `--tasks` it runs `perf-harness` alone, which emits no unit specs at all. |
+
+### Running them
+
+The emitted config selects both placements — `**/*.flawless.test.{ts,tsx}` anywhere under the project root, plus `<outDir>/unit/**` for anything that could not colocate. In Next.js mode the merged `bun run flawless:unit` becomes `vitest run --config flawless/vitest.config.mts`.
+
+That `--config` spelling matters: without `--colocate` the script is `vitest run --root flawless`, which roots vitest *inside* the out dir and can never see a spec in `src/`. Both spellings are the tool's own, so a suite that silently stopped running its colocated specs is usually carrying the one a run without the flag left behind.
+
+## A plain re-run keeps every colocated spec
+
+Re-run the same command a week later; nothing beside your sources is touched:
+
+```bash
+flawless-react "src/**/*.tsx" --colocate --tasks perf-harness,unit-browser --no-interactive
+```
+
+```text
+Summary:
+  [ok] perf-harness   files:28 findings:0  refreshed perf suite for 11 of 18 component(s): AlertBanner, Avatar, Badge, …; kept budgets.json, host/main.tsx, provider.fixtures.ts (delete one to regenerate it)
+  [ok] unit-browser   files:18 findings:0  unit tests for 18 component(s) (14 colocated spec(s) kept — rerun with --force to regenerate): AlertBanner, Avatar, Badge, Breadcrumb, Card, CardHeader, DataTable, EmptyState, InvoiceRow, …
+```
+
+`files:18` is the honest number: the vitest config, the setup file, the browser config and its eleven specs, and four colocated specs for components the analyser saw for the first time. The fourteen that already existed were kept, and the summary says so alongside the flag that would change its mind. New components still arrive — colocation protects what is on disk, it does not stop the tool adding to it.
+
+## The provenance stamp
+
+Every colocated spec opens with one line:
+
+```tsx
+// @flawless-generated sha256:4f1c9a08d3b7e260 flawless-react@0.3.0
+import { render, screen } from "@testing-library/react";
+import { describe, expect, test } from "vitest";
+import { AlertBanner } from "./AlertBanner";
+```
+
+The hex is the first 16 characters of the sha256 of **everything below the stamp line** — excluded for the obvious fixed-point reason, since a hash cannot cover itself. It answers "did a human touch this file", not "did an adversary forge it".
+
+The part that is easy to get wrong: **the hash is computed after the run's style pass**, not off the raw template. Generated files are reformatted with your project's own biome or prettier before the run ends. Stamp the template and the bytes on disk stop matching milliseconds later — so the *next* `--force` reads every untouched spec as hand-edited and refuses to refresh anything, forever, on a project whose only crime was having a formatter. The writer stamps the render, the formatter takes its turn, a second pass restamps what it moved. The stamp names the bytes the formatter left.
+
+A spec your formatter touches on a later `bun run format` sweep therefore reads as **edited** — the conservative direction, costing a refresh and never your work. The version field is *preserved* by the restamp, so a spec still saying `flawless-react@0.2.7` in a 0.3.0 suite has not been regenerated since.
+
+## The `--force` decision matrix
+
+`--force` means "regenerate what a plain re-run keeps" — but not unconditionally. For colocated specs it asks the stamp first:
+
+| State on disk | plain re-run | `--force` |
+| --- | --- | --- |
+| no spec yet | written, stamped | written, stamped |
+| stamp matches body | kept | **rewritten** (refreshed) |
+| stamp mismatch — you edited or reformatted it | kept | kept, listed as hand-edited |
+| no stamp line — pre-stamp, or you deleted it | kept | kept, listed as pre-stamp |
+
+Read the middle two rows together and the design is clear: all `--force` adds for colocated specs is the rewrite of files still *byte-for-byte what the tool wrote*. Everything a human has been near survives. A pre-stamp spec cannot prove either way, so it is kept too — reported separately, because "I never had a stamp" and "my stamp does not match" are different states. This is why the old advice, "don't `--force` once you've started editing", protected nothing: the perf harness regenerated regardless, and the specs you cared about were safe already.
+
+## What kept looks like under `--force`
+
+```bash
+flawless-react "src/**/*.tsx" --colocate --force --tasks perf-harness,unit-browser --no-interactive
+```
+
+```text
+Summary:
+  [ok] perf-harness   files:28 findings:0  refreshed perf suite for 11 of 18 component(s): AlertBanner, Avatar, Badge, …; kept budgets.json, host/main.tsx, provider.fixtures.ts (delete one to regenerate it)
+  [ok] unit-browser   files:28 findings:0  unit tests for 18 component(s) (3 hand-edited or reformatted colocated spec(s) kept — delete to regenerate: src/components/DataTable.flawless.test.tsx, src/components/InvoiceRow.flawless.test.tsx, src/app/Summary.flawless.test.tsx) (1 pre-stamp colocated spec(s) kept — delete to regenerate: src/components/Avatar.flawless.test.tsx): AlertBanner, Avatar, Badge, …
+```
+
+Both notes precede the component list deliberately: `REPORT.md` truncates each task summary at 120 characters, and the kept listing is the part a reader must act on. Paths are relative to where you read from, and the listing caps at ten with a `+N more` tail. Then confirm against the disk — the four kept specs are absent from `git status --porcelain`. That is the assertion: the working tree, not the summary.
+
+> Commit or stash before forcing anyway. The stamp protects hand-edited colocated specs; e2e route specs and the provider wrapper have no such guard, and a diff you can read beats any tool's promise about what it left alone.
+
+## Delete to regenerate
+
+Both kept states share one escape hatch — the ownership model in one sentence: **delete the file and re-run**.
+
+```bash
+rm src/components/DataTable.flawless.test.tsx
+flawless-react "src/components/DataTable.tsx" --colocate --tasks unit-browser --no-interactive
+```
+
+No spec on disk is the first row of the matrix, so the file comes back freshly written and freshly stamped — with whatever the current version infers, usually more than whatever wrote the one you deleted. You get the new render; you lose your edits; you chose that by deleting the file. There is no flag meaning "merge my edits into the new template": the tool cannot know which assertions replaced one of its own.
+
+### Deleting the stamp line does *not* hand the file back
+
+The obvious wrong move is to strip the first line, assuming a spec with no stamp is one the tool will happily rewrite. It is the opposite. A file with no stamp classifies as **pre-stamp**, and pre-stamp is *kept* — kept and named in the summary on every future `--force`. You have turned a quiet file into a permanently nagging one without changing what happens to it. The unit of ownership is the file, not the line.
+
+Deleting the stamp to "claim" a spec you are about to edit is equally unnecessary: the file is yours the moment you change the body, because the hash stops matching.
+
+## Kept specs drop out of the hand-work tallies
+
+The emitters count `TODO(flawless)` markers while rendering, before anyone knows whether the render will be written. A kept spec's render is discarded — so its markers are retracted too, in all three kept buckets. Without that, `REPORT.md` would bill you for TODOs in a file never written, possibly for the exact fixtures you already filled in the version on disk:
+
+```text
+## Hand-work remaining
+
+| Kind | Markers | Example file |
+| --- | ---: | --- |
+| `compound-root-wrap` | 6 | `src/components/menubar.MenubarSub.flawless.test.tsx` |
+| `uninferred-return-shape` | 11 | `src/app/Summary.flawless.test.tsx` |
+```
+
+Every number there belongs to a file this run wrote. A TODO in a render that was thrown away is not your debt. See [Triage findings](/docs/recipes/triage-findings/) for the ones that *are* yours.
+
+## Hand-hardening, and the assertion that catches a vacuous pass
+
+The generated spec asserts only what the analyser could prove, against fixtures it may have had to leave empty. The highest-value edit is nearly always the same shape: give a mock a realistic value, then assert that value *reaches the DOM*. The emitted spec mocks the data dep as `vi.fn(async () => ({}))` and asserts `container.querySelector("div")` is not null — replace both:
+
+```tsx
+vi.mock("@/lib/invoices", () => ({
+  getInvoice: vi.fn(async () => ({ id: "inv_1", number: "INV-2291", total: 4200 })),
+}));
+test("renders the invoice number", () => {
+  renderTarget();
+  expect(screen.getByText("INV-2291")).toBeInTheDocument();
+});
+```
+
+Run it and watch it fail before you believe it:
+
+```bash
+bun run flawless:unit
+```
+
+```text
+ FAIL  src/components/InvoiceRow.flawless.test.tsx > InvoiceRow > renders the invoice number
+TestingLibraryElementError: Unable to find an element with the text: INV-2291
+
+<body>
+  <div>
+    <div class="rounded-md border p-4" />
+  </div>
+</body>
+
+ Test Files  1 failed | 22 passed (23)
+      Tests  1 failed | 61 passed (62)
+```
+
+That empty `<div>` is the whole point: the generated version passed against it. A spec asserting "a div exists" is green on a component rendering its empty state, and green on one whose data fetch silently returned nothing — the vacuous pass this tool exists to prevent. The moment the assertion gets specific, the stamp stops matching and the file is protected for good.
+
+Two rules go with it: never delete a `test.skip` that names its reason — give the component what the reason asks for — and never widen the mock allowlist by hand, since mocking a UI component replaces the element the interaction tests click.
+
+## The collision nobody expects: a bare `bun test`
+
+Colocated specs are Vitest files sitting in `src/`, and Bun's and Jest's default globs both match `*.test.tsx` anywhere. A project whose `test` script is a bare `bun test` collects them and runs them under a runner they were not written for. The generator will not do that silently:
+
+```text
+warning: "test": "bun test" has no path filter, so it will also collect the colocated *.flawless.test.tsx specs and run them under the wrong runner. Scope it (e.g. "bun test tests") or run flawless without --colocate.
+```
+
+Ignore it and a green suite turns red with `Cannot find module "vitest"` from a file you never wrote — a reason that looks nothing like the cause. The fix is one edit to *your* `package.json`: scope the script to where your own tests live. The check fires only in Next.js mode, and only for a bare runner with no path.
+
+## Working with `--changed`
+
+```bash
+flawless-react "src/**/*.tsx" --colocate --tasks perf-harness,unit-browser --changed --no-interactive
+```
+
+`--changed` narrows the run, never the generation: vitest gets a `related` walk over the module graph, so editing `InvoiceRow.tsx` runs `InvoiceRow.flawless.test.tsx` because the spec imports it. Pass `--tasks` explicitly — bare `--no-interactive` runs `perf-harness` alone, which has no unit specs to narrow. `--changed --force` regenerates: an explicit force outranks the keep, stamp check and all.
+
+## Limits
+
+Honest about what doesn't work yet:
+
+- **Sources outside the config root cannot colocate.** The vitest config roots at the out dir's *parent*. A component resolved into a sibling workspace package sits outside it, so its spec falls back to `<outDir>/unit/` and is rewritten every run.
+- **Switching to `--colocate` leaves the old spec behind.** The previous `<outDir>/unit/<Component>.test.tsx` is not deleted and the include glob still covers it, so both run — two specs for one component, one stale. Delete the out-dir copies after the switch.
+- **No merge.** `--force` rewrites or keeps; it never reconciles. For the new template *and* your edits: copy the spec aside, delete, regenerate, port the edits back.
+- **The stamp proves nothing about correctness.** It answers "is this still ours", not "does this still match the component". A spec whose component was refactored underneath it is untouched, stamped, and wrong.
+- **`--colocate` is per-run, not recorded in the suite.** Leave the flag off next time and the run writes in-out-dir specs and merges the `--root` spelling of `flawless:unit` back in. Keep it in whatever script or CI step invokes the tool.
+
+## Exit codes
+
+| Situation | Exit |
+| --- | --- |
+| Every selected task ok — kept specs included, since keeping is a success | `0` |
+| A task failed, or `--run-tests` and a suite went red | `1` |
+| Missing entry path/glob, unknown flag, bad `--tasks` value | `2` |
+
+Keeping a spec never fails a run. Neither does the pre-stamp state, the collision warning, or a failed restamp — all are reported and the run continues. Under `--ci` the same information rides in the JSON blob, not only on stdout.
+
+## Related
+
+- [Safe regeneration](/docs/recipes/safe-regeneration/) — the generated/refreshed/kept lifecycle, and what `--force` does to files that *aren't* stamp-guarded.
+- [Mocking data and actions](/docs/recipes/mocking-data-and-actions/) — when the spec you just colocated is full of empty fixtures waiting for real values.
+- [Compound components](/docs/recipes/compound-components/) — for parts whose spec carries a reasoned `test.skip` because they cannot mount outside their Root.
+- [Your first suite](/docs/recipes/first-suite/) — start here if nothing is generated yet; colocation is a decision to make on run one.

@@ -1,0 +1,268 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Your first suite
+description: One component to a running suite — entry paths and globs, the task menu vs --tasks, --out, what perf-harness and unit-browser write, installing the emitted deps, the first findings, and --roots, --depth, --variants.
+---
+
+**Goal:** point flawless-react at a single `.tsx` file and walk away with a suite you can `bun install && bun run test` — and know which of its green results are real and which are the tool saying *"I could not tell"*.
+
+## Pick the entry
+
+The positional argument is one `.tsx` path or a glob. Start with a path: you get that component plus the locally-imported children it renders, three levels deep.
+
+```bash
+bunx flawless-react ./src/Dashboard.tsx --out .profile/dashboard --no-interactive
+```
+
+```text
+added 10 entry(ies) to .profile/dashboard/.gitignore (reports/, heaps/, playwright-report/, node_modules/, ...)
+
+Summary:
+  [ok] perf-harness   files:15 findings:0  scaffolded perf suite for 3 of 3 component(s): Dashboard, Hello, Card
+```
+
+`Dashboard` was the entry; `Hello` and `Card` came along because `Dashboard.tsx` renders them. **`3 of 3` is the analyser's own accounting** — three components found, three scaffolded. When those numbers differ, `REPORT.md` names the shortfall.
+
+A glob makes *every matched file* its own entry:
+
+```bash
+bunx flawless-react "src/**/*.tsx" --out .profile/app --tasks perf-harness,perf-static --no-interactive
+```
+
+Quote the glob so the tool expands it, not your shell. And know what you asked for: a component that is both a matched file *and* a child of another entry is analysed under both roots, so one finding on it prints twice. On a directory-wide sweep every file is already a root, so the child walk buys nothing — add `--include-children=false` and the duplicate goes with it.
+
+### Three ways it stops before analysing anything
+
+Each exits `2` and writes nothing:
+
+```text
+no files matched: ./NoSuchThing.tsx
+
+warning: skipping src/barrel.tsx: parseFile: could not locate a React component in src/barrel.tsx. Expected an exported function/arrow component or a `const Name: React.FC<...> = ...` declaration.
+no analysable components found
+
+unknown task id: unit-browsers. Available: perf-harness, unit-browser, perf-static, a11y, react-rules, e2e, load
+```
+
+The middle one is the common surprise — a barrel file, a styles module, an HOC factory. Point at the file that actually declares the component. Task ids are validated, so `--tasks unit-browsers` fails the run instead of quietly running something else.
+
+## The menu, or `--tasks`
+
+Run `bunx flawless-react` bare on a TTY and you get an interactive flow: the path or glob (pre-filled from `src/App.tsx`, `src/index.tsx` or `src/main.tsx` if one exists), the output directory, then a checkbox list of the seven tasks with **`perf-harness` and `perf-static` preselected**. It offers to run the generated tests when it finishes.
+
+That is the right first run, and the wrong one from a script. There, pass `--no-interactive` and say what you want:
+
+```bash
+bunx flawless-react ./src/Dashboard.tsx --out .profile/dashboard --tasks perf-harness,unit-browser,perf-static --no-interactive
+```
+
+**The trap is the omitted flag.** `--no-interactive` with no `--tasks` does not run all seven tasks — it runs `perf-harness` alone. If you expected unit specs and got a profiling host, that is why.
+
+| Task id | What it writes | Needs |
+| --- | --- | --- |
+| `perf-harness` | `host/` bundle, Playwright + `<Profiler>` + react-scan specs, heap snapshots | — |
+| `unit-browser` | Vitest + Testing Library specs; Playwright browser specs *only if* `perf-harness` is in the same run | — |
+| `perf-static` | `reports/<C>.perf-static.json` findings — nothing to run | — |
+| `a11y` | Biome jsx-a11y findings | biome in the scanned project |
+| `react-rules` | Biome correctness rules — exhaustive deps, hook order, keys | biome |
+| `e2e` | route specs against a real dev server | running app, seeded data |
+| `load` | crust load pipes | crust to run them |
+
+The standalone binary cannot carry biome inside itself. Ask for `a11y` without biome anywhere and the task fails loudly rather than reporting zero findings:
+
+```text
+  [FAIL] a11y           files:0 findings:0  a11y scan failed
+         error: biome executable not found. Looked in this package's node_modules, in ./node_modules/.bin/biome and every ancestor (so a hoisted workspace root counts), and on PATH.
+```
+
+Exit `1`, and the message names the fix: `bun add -d @biomejs/biome` in the project you are scanning, or biome on `PATH`. A scan that could not run is not a clean scan.
+
+## `--out`: where the suite lands
+
+`--out` defaults to `./.flawless`, and the directory is a **standalone project** — its own `package.json`, `tsconfig.json` and dependency tree, importing nothing from flawless-react once written.
+
+Two things land *outside* it. Ignore entries go to the nearest sensible `.gitignore`, so what the suite produces at *test* time — heap snapshots, Playwright reports, `e2e/.auth.json` — never reaches a commit. And a `<Component>.flawless.json` sidecar is dropped beside each analysed source so findings surface where the code lives (`--no-inline-summary` turns those off).
+
+One sharp edge: **a non-default `--out` is not excluded automatically.** The defaults skip `*.test.*`, `*.spec.*`, `*.stories.*`, `node_modules`, `dist`, `.next` and `flawless/` — but not `.profile/`. Sweep twice and the second run analyses the suite the first one wrote. Name it yourself:
+
+```bash
+bunx flawless-react "src/**/*.tsx" --out .profile/app --exclude ".profile/**" --tasks perf-harness --no-interactive
+```
+
+## What `perf-harness` and `unit-browser` write
+
+Those two produce something runnable. A `perf-harness,unit-browser,perf-static` run over the dashboard writes:
+
+```text
+.profile/dashboard/
+├── package.json          # the suite's own deps + test / test:unit / test:browser
+├── playwright.config.ts  # auto-boots host/server.ts before any test
+├── vitest.config.mts     # jsdom, your tsconfig paths as aliases, react/react-dom deduped
+├── setup.ts              # jest-dom, the jsdom gaps real components hit, MSW wiring
+├── host/
+│   ├── server.ts         # Bun.serve over a Bun.build bundle of your components
+│   ├── registry.ts       # mount tables — REGENERATED every run
+│   └── main.tsx          # WRITE-ONCE: createRoot + <Profiler> + react-scan
+├── profile/<Component>.profile.spec.ts
+├── unit/<Component>.test.tsx
+├── browser/<Component>.spec.ts
+├── budgets.json          # WRITE-ONCE: per-component mountMs / updateMs
+├── reports/              # summary.json + per-task findings JSON
+└── REPORT.md             # what this run found, and what it could not cover
+```
+
+`perf-harness` owns `host/`, `profile/` and `budgets.json`. `unit-browser` owns `unit/`, `setup.ts`, `vitest.config.mts` and — **only when `perf-harness` ran too** — `browser/`, because those specs drive its host. Ask for `unit-browser` alone and the summary says so rather than silently emitting less:
+
+```text
+  [ok] unit-browser   files:6 findings:0  unit tests for 3 component(s) (browser specs skipped — add perf-harness to the task list for the host they need): Dashboard, Hello, Card
+```
+
+Each profile spec carries five scenarios: `mounts at defaults`, `variant matrix`, `click rerender`, `forced rerender × N`, `stress-click-rerender × 50`. Each unit spec asserts only what static analysis could prove — the root tag, `children` and `className` passthrough *when the value provably reaches the DOM*, literal copy rendered unconditionally, one test per detected interaction. Anything it could not derive becomes a `TODO(flawless)` marker or a `test.skip` naming the missing precondition, never a silently-passing assertion. `host/main.tsx` and `budgets.json` are yours from the moment they exist.
+
+## Install the suite's own deps and run it
+
+The out dir declares its own dependencies, so it needs its own install. This is the step people skip:
+
+```bash
+cd .profile/dashboard
+bun install
+bun run test:unit      # Vitest, jsdom
+bun run test           # Playwright, headless Chromium
+bun run test:headed    # the same run, visible browser
+```
+
+Skip `bun install` and the failure is at least unambiguous:
+
+```text
+$ playwright test
+/usr/bin/bash: line 1: playwright: command not found
+error: script "test" exited with code 127
+```
+
+The first Playwright run on a machine may also want `bunx playwright install chromium`.
+
+### What you'll see
+
+The unit suite is fast and boring, which is what you want from it:
+
+```text
+ ✓ unit/Dashboard.test.tsx (1 test) 15ms
+ ✓ unit/Card.test.tsx (3 tests) 49ms
+ ✓ unit/Hello.test.tsx (5 tests) 52ms
+
+ Test Files  3 passed (3)
+      Tests  9 passed (9)
+```
+
+The profile suite is where the measurements are. Read the *skips* before the ticks:
+
+```text
+Running 30 tests using 12 workers
+
+  -   3 [chromium] › profile/Dashboard.profile.spec.ts:44:6 › Dashboard: click rerender — the analyser found no click handler on this component
+  -   4 [chromium] › profile/Dashboard.profile.spec.ts:66:6 › Dashboard: stress-click-rerender x 50 — the analyser found no click handler on this component
+  ✓   5 [chromium] › profile/Dashboard.profile.spec.ts:30:1 › Dashboard: mounts at defaults (526ms)
+[Hello variants] {"min":0.1,"avg":0.25,"p50":0.25,"p95":0.385,"max":0.4,"n":2}
+[Card forced] {"min":0,"avg":0.1,"p50":0.099,"p95":0.2,"max":0.699,"n":50}
+[heap] stress-click-rerender: 6904968 -> 7331832 bytes (delta +426864) -> heaps/Hello-profile__Hello-stress-click-rerender-x-50__stress-click-rerender-after.heapsnapshot
+
+  8 skipped
+  22 passed (4.8s)
+```
+
+Those skips are the tool refusing to guess. `Dashboard` renders no button of its own, so there is no click to profile — and rather than clicking whichever element came first, the scenario is emitted as a skip **carrying its reason in the test title**, decided at scaffold time. A suite that clicked something anyway would be green and worthless.
+
+The `[heap]` line names a real `.heapsnapshot` in `heaps/`, written for every stress scenario; load two in Chrome DevTools' Memory tab, Comparison view, to see what the scenario retained. Each is tens of megabytes, so `--heaps off` turns the capture off.
+
+`--run-tests` has the generator run the suites for you, and is honest when there is nothing to run: *"none of the selected task(s) (perf-static) generates one that --run-tests executes."*
+
+## Reading the first findings
+
+The scanning tasks print `file:line:col rule message` grouped by file, then the per-task summary — and exit `0`. Findings are information, not failures:
+
+```text
+Summary:
+  [ok] perf-static    files:1 findings:1  static perf analysis: 1 finding(s) across 1 root(s)
+```
+
+Each finding lands in three places, one per reader. `reports/` holds the machine-readable JSON — one file per analysed *root* for `perf-static`, one aggregate each for `a11y` and `react-rules`. The `<Component>.flawless.json` sidecar carries per-task counts and the three highest-severity findings, every path relative to the sidecar itself. And `REPORT.md` accounts for the whole run: every component placed in exactly one render-mode row split by mountable or not, then a "Not covered, and why" section naming each gap.
+
+The rule you meet first on a real component is `perf/unresolved-prop` — *"could not synthesise a default for prop `slot` — generated tests will pass undefined."* A prop the analyser cannot type is a prop the spec passes `undefined` for. Supply it and the generated `DEFAULTS` pick it up:
+
+```bash
+bunx flawless-react ./src/Panel.tsx --out .profile/panel --tasks perf-harness,perf-static --props '{"slot":"—"}' --no-interactive
+```
+
+Note what did *not* change: the finding still fires. `--props` fixes the spec, not the analysis — the type still did not resolve, and a later regeneration without the flag is back to `undefined`.
+
+**A green first run does not mean covered.** It means nothing this analysis can prove is broken. There is no type checker behind it, dependency findings skip hooks whose deps contain member access or spreads, and memoisation findings skip children with spread props.
+
+## The three flags worth knowing first
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--roots <mode>` | `primary` | `primary` analyses each file's main component; `exported` emits a tree per *exported* component — what a component library needs. |
+| `--depth N` | `3` | Levels of locally-imported children to follow. `0` is the entry alone. Cycle-guarded; `node_modules` never walked. |
+| `--variants N` | `5` | Prop-variant rows in the matrix, and the multiplier behind `forced rerender × (N × 10)`. |
+
+`--roots` changes what a run *means*. A shadcn-style `card.tsx` declares three components and exports all three; the default picks one:
+
+```bash
+bunx flawless-react ./src/ui/card.tsx --out .profile/card --tasks perf-harness --roots exported --no-interactive
+```
+
+```text
+# --roots primary (default)
+  [ok] perf-harness   files:13 findings:0  scaffolded perf suite for 1 of 1 component(s): Card
+
+# --roots exported
+  [ok] perf-harness   files:15 findings:0  scaffolded perf suite for 3 of 3 component(s): Card, CardHeader, CardTitle
+```
+
+`--depth 0` is the debugging setting: when a child's parse is what breaks a run, drop to the entry alone. `--variants` shows up in the emitted spec, not just the run — at the default the scenario reads `forced rerender x 50`, at `--variants 2` the same spec reads `forced rerender x 20` and its console line reports `"n":20`. Only union-of-literal props produce variant rows at all, and the matrix is pairwise: one prop varied around the defaults, never the full cartesian product.
+
+```bash
+bunx flawless-react ./src/Dashboard.tsx --out .profile/dashboard --tasks perf-harness --depth 0 --no-interactive
+bunx flawless-react ./src/Dashboard.tsx --out .profile/dashboard --tasks perf-harness --variants 2 --no-interactive
+```
+
+Everything else — `--provider`, `--api`, `--colocate`, `--force`, `--changed`, `--json` and the Next.js flags — is in the [CLI reference](/docs/cli/).
+
+## Limits
+
+Honest about what doesn't work yet:
+
+- **No type checker.** Imported prop types are chased two hops. Non-literal unions, `Omit`/`Pick`/`Partial` and anything in `node_modules` do not resolve; they land in `unresolvedProps` and the spec passes `undefined`.
+- **Recognised component shapes are a fixed list** — `const X: React.FC<Props>`, exported function declarations, JSX-returning arrows, anonymous default arrows, `memo()` and `forwardRef()`. HOCs, decorators and dynamic factories are not detected.
+- **The suite pins React to `^18.3.0`.** On a React 17 or 19 project, edit the emitted `package.json` before `bun install`.
+- **`a11y` and `react-rules` need biome in the scanned project** under the standalone binary, and **browser specs need `perf-harness`** in the same run — there is no standalone mode for either.
+- **A glob sweep reports a shared child once per root** unless you pass `--include-children=false`.
+
+## Exit codes
+
+| Situation | Exit |
+| --- | --- |
+| Every selected task ok; any `--run-tests` suites green | `0` |
+| A task failed (biome missing, a Next.js emit that threw), or a `--run-tests` suite went red | `1` |
+| Usage error: unknown flag, unknown task id, no files matched, no analysable component | `2` |
+
+Findings never fail the run: 246 `perf-static` warnings still exit `0`. Gating on them is [a CI decision](/docs/recipes/ci-integration/), not the generator's.
+
+## The suite is yours
+
+It lives in `--out`, imports nothing from flawless-react, and the generator has no opinion about what you do next. Commit it and the diff is reviewable: emitted files are reformatted with your project's own biome or prettier before the run ends, and a second identical run leaves `git status` empty.
+
+A re-run rewrites everything it can rebuild from the analysis — deliberately, because a frozen file never receives a later version's improvements. What it never rewrites is the work only you can do: `budgets.json`, `host/main.tsx`, `provider.fixtures.ts`, `mocks/handlers.ts`, `e2e/global-setup.ts`. It names what it kept:
+
+```text
+  [ok] perf-harness   files:13 findings:0  refreshed perf suite for 3 of 3 component(s): Dashboard, Hello, Card; kept host/main.tsx, budgets.json (delete one to regenerate it)
+```
+
+The loop from here: tighten `budgets.json` to your observed p95, fill the `TODO(flawless)` markers with real fixtures, rerun. The scaffolding was the boring part, and it is done.
+
+## Related
+
+- [Colocated specs](/docs/recipes/colocated-specs/) — when the unit specs belong beside the source, hand-hardened and safe from regeneration.
+- [Next.js adoption](/docs/recipes/nextjs-adoption/) — `--nextjs` puts the suite under `flawless/`, derives a provider from your layout and merges deps into your `package.json`.
+- [Triage findings](/docs/recipes/triage-findings/) — what to fix first once the scanning tasks hand you a list.
+- [Safe regeneration](/docs/recipes/safe-regeneration/) — the generated / refreshed / kept lifecycle, before your second run.

@@ -1,0 +1,340 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Mocks with real shapes
+description: Server-action returns read off the source, Promise annotations resolved into fixtures, OpenAPI examples joined to single-fetch wrappers, the provenance comment each one carries, and the TODO markers that stay on purpose.
+---
+
+**Goal:** get the generated mocks returning the shapes your components actually consume — an action's own literal return, a data dep's `Promise<T>` annotation, the OpenAPI example for the fetch it wraps — and an honest `TODO(flawless)` marker everywhere none of that could be proven.
+
+## The empty-object mock
+
+Every spec for a server component, and every spec for a client component importing a server action, opens with a `vi.mock` factory. The factory replaces the *whole module*, so something has to stand where your data layer was. The lazy answer is `{}`:
+
+```ts
+vi.mock("@/lib/data", () => ({ listCases: vi.fn(async () => ({})) }));
+```
+
+Two things happen next and both are bad. If the component does `cases.map(...)`, the spec throws `cases.map is not a function` — the tool failing on a fixture it never had, reported as though your code were broken. If the component is tolerant — `cases?.length ? <Rows /> : <Empty />` — the spec renders the empty state and **passes**, having asserted nothing about the render anybody sees. That second one is why this page exists: a green suite over components that were never exercised is worse than no suite, because it stops you looking.
+
+So before settling for `{}`, flawless-react runs two independent inferences. **Server actions** are read from the action's own source. **Data deps** get a second chance from their own declaration. Whatever neither proves keeps `{}`, keeps a marker, and keeps a skip escape that stops the tool blaming your app for its own gap. All of it belongs to the `unit-browser` task:
+
+```bash
+flawless-react "src/**/*.tsx" --tasks unit-browser --out .flawless
+```
+
+## Server actions: the action's own return
+
+A module with a `"use server"` prologue is mocked from its source. The rule is narrow on purpose: an export is recorded only when **every non-exit return collapses to one literal-derivable value** — an object, array, string, number or `null`, composed of literals. Here is a module that qualifies:
+
+```ts
+// src/actions.ts
+"use server";
+
+import { redirect, notFound } from "next/navigation";
+
+export async function saveProfile(form: FormData) {
+  if (!form.get("id")) redirect("/login");
+  return { ok: true, message: "saved" };
+}
+
+export async function archiveProfile(id: string) {
+  if (id === "gone") return notFound();
+  return { ok: true, message: "saved" };
+}
+```
+
+Both exports resolve, so the emitted spec carries the real values and no marker at all:
+
+```ts
+vi.mock("../../src/actions", () => ({ archiveProfile: vi.fn(async () => ({"ok":true,"message":"saved"})), saveProfile: vi.fn(async () => ({"ok":true,"message":"saved"})) }));
+```
+
+That difference is not cosmetic. The `SaveCard` consuming this stores the result and renders `saved.message.toUpperCase()` after the click. With `{}` the click test throws inside `act()` and the spec is red on correct code. With the literal, the spec drives the button and reads `SAVED` off the DOM — the test you wanted written. The `vi.fn` wrapper stays either way: it is a real function, so `saveProfile.bind(null, id)` in the JSX still works and the spec can still assert the action was called.
+
+### redirect() and notFound() are exits, not values
+
+Next aborts rendering at `redirect()`, `permanentRedirect()` and `notFound()`. Nothing downstream of them reaches a caller, so they say nothing about what the mock should return. The analyser discounts them and keeps reading:
+
+```ts
+"use server";
+import { redirect, notFound } from "next/navigation";
+
+export async function save(id: string) {
+  if (!id) redirect("/login");
+  if (id === "gone") return notFound();
+  if (id === "moved") { return redirect("/moved"); }
+  return { ok: true };
+}
+```
+
+Recorded: `{ ok: true }`. Three exits discounted, one value left.
+
+The discount applies only when the callee is **provably next/navigation's**. Aliases count (`import { redirect as bounce }`), namespace calls count (`nav.redirect(...)`), and a project-local `redirect()` that *returns something* does not — discounting it would let the recorded literal disagree with what the action really hands back. An action that only ever exits records nothing, because there is no value to record.
+
+### What bails, and why
+
+The bail policy is deliberately blunt. A mock built from a wrong guess is worse than the honest `{}`, because the spec goes green against data the action can never produce.
+
+| Source | Recorded? | Why |
+| --- | --- | --- |
+| `return { ok: true }` in every branch | yes | one literal |
+| `if (x) return { ok: false }; return { ok: false };` | yes | byte-identical duplicates collapse |
+| `if (x) return { ok: true }; return { ok: true, error: "nope" };` | no | two distinct shapes — which one would the mock pick? |
+| `if (x) return buildResult(); return { ok: true };` | no | a literal happy path beside a computed error path is still two shapes, and mocking only the literal hides the one the component crashes on |
+| `if (x) return; return { ok: true };` | no | a bare `return;` is a value the mock cannot express |
+| `` return `hello ${name}`; `` | no | template literals resolve only without substitutions |
+| `export { doSave as save }` | yes, under `save` | the exported name is what importers bind to |
+| `export { save } from "./other"` | no | cross-file re-exports are not chased here |
+
+### The marker retires per module, not per action
+
+Change one export so it stops resolving — the shape real apps have, where the happy path is a literal and the error path goes through a helper:
+
+```ts
+export async function archiveProfile(id: string) {
+  if (id === "gone") return notFound();
+  return toFormState(id);
+}
+```
+
+Re-run, and the spec looks like this:
+
+```ts
+// TODO(flawless): server action stubbed — give it a realistic return value.
+vi.mock("../../src/actions", () => ({ archiveProfile: vi.fn(async () => ({})), saveProfile: vi.fn(async () => ({}) /* … */) }));
+```
+
+`saveProfile` keeps its resolved literal, `archiveProfile` gets `{}`, and the module keeps its marker — because **the marker retires only when every export of the module resolved**. Not pedantry: the factory replaces the entire module surface, so one unresolved sibling is one hole a transitive importer can still fall through.
+
+The factory is keyed by **module-side** export names for the same reason. The module exports `createPost` whether you imported it as that, as `saveIt`, or through `import * as actions`; a factory keyed by the local alias exports a name the module never had while leaving the real one unmocked. A default export is recorded under `default`. The perf host's browser-bundle stubs read the same values, so both layers agree on what an action returns.
+
+## Data deps: the declaration gets a second chance
+
+The primary inference for a data dep is **usage**: what the component does with the awaited value. `user.name` in the JSX proves an object with a `name`, and that testimony always wins.
+
+But plenty of server components just hand the value onward — into a child, into a serialiser, into a `<DataTable rows={rows} />`. Usage proves nothing, the dep lands as unknown, and the old answer was `{}`. Now those deps get a second pass over the dep function's **own declaration**, in two paths.
+
+### Path A: the return annotation
+
+```ts
+// lib/data.ts
+export interface Case {
+  id: number;
+  title: string;
+  status: "open" | "closed";
+  archived: boolean;
+}
+
+export async function listCases(): Promise<Case[]> {
+  return db();
+}
+```
+
+The emitted mock:
+
+```ts
+listCases: vi.fn(async () => ([{"id":1,"title":"flawless-title","status":"open","archived":true}])) /* inferred from listCases's return annotation */
+```
+
+The resolution rules:
+
+- **`T[]` yields a one-element array**, never `[]`. An empty array renders no rows — exactly the vacuous pass the fixture exists to prevent.
+- **Unions discount their nullish arms.** `Promise<Case[] | null>` yields the `Case[]` fixture; `null` and `undefined` are values the type already admits, not holes. DB-shaped annotations are `X | null` throughout, so this is the biggest unblocker on real code. A union of two *shapes* still bails — the analyser will not pick a side.
+- **Any unresolved member bails the whole value.** One `createdAt: Date` on an otherwise clean interface and the fixture is refused, not patched with a hole. A partial fixture is the wrong-guess failure mode in disguise.
+- **Generics bail.** `Promise<ApiResult<Case>>` substitutes nothing. So does a sync annotation on an awaited dep — somebody's refactor in progress, not a thing to build a fixture on.
+
+The declaration need not be in the same package. `@scope/shared` resolves through the repo's **workspace map** into that package's *source* tree, and barrel re-exports — `export * from`, `export { A as B } from` — are chased to the declaring file. `node_modules` is never walked, so a third-party type never resolves.
+
+A member typed by a `z.infer` alias resolves too, by reading the zod schema's initializer as **syntax**: objects, enums (first literal), primitives, arrays, `.optional`/`.nullable`/`.default`/`.partial`/`.extend`. A `.transform`, a union, a record or a date bails the whole fixture rather than guess.
+
+### Path B: the single-fetch wrapper
+
+The other common shape is a thin wrapper with no annotation at all:
+
+```ts
+export async function getBillingSummary() {
+  const res = await fetch("/api/billing/summary");
+  return res.json();
+}
+```
+
+The analyser records the method and path — `GET /api/billing/summary` — and the **join to the API spec's response example happens at emit time**, where the route table lives. Three idioms count as a wrapper: the binding above, `const data = await res.json(); return data;`, and the direct `return (await fetch(...)).json()`. Three shapes deliberately do *not*:
+
+- **Two fetches.** That is an aggregator. Joining the first fetch's example to a function that returns the second one's body is a wrong example, quietly.
+- **An envelope unwrapper.** `return envelope.data` returns something the spec example does not describe. Serving the whole envelope would be wrong-but-plausible, the worst kind.
+- **A side-effect fetch.** `void fetch("/api/audit", { method: "POST" })` beside a computed return is not a wrapper at all.
+
+The join needs a spec to join *to*, and that only exists in Next.js mode. A local file wins — the only reliable source when the API is a catch-all (Hono, tRPC) — then the live spec, which is auto-tried at `http://localhost:3000/api/docs`:
+
+```bash
+flawless-react --nextjs . --tasks unit-browser --api ./openapi.json --swagger-url=off
+flawless-react --nextjs . --tasks unit-browser --swagger-url http://localhost:3000/api/docs
+flawless-react --nextjs . --tasks unit-browser --swagger-url=off
+```
+
+The third line skips the auto-try entirely and lets the static route walk stand alone. With `openapi.json` describing `GET /api/billing/summary` with the example `{ "plan": "pro", "seats": 12, "renewsAt": "2026-09-01" }`, that object becomes the mock's fixture — and lands in `flawless/mocks/handlers.ts` as an MSW handler too, so the layer answering a client component's `fetch` and the module mock answering a server component's data call serve one body between them.
+
+### Usage outranks declaration
+
+Both paths run **only** for deps whose usage came up empty. A dep the component actually reads fields off keeps its usage-derived shape, annotation or not — the annotation describes what the function promises, the reads describe what this render needs.
+
+One channel is excluded outright: a dep declared in a `"use server"` module is never enriched here, because server-action modules go through their own mock. Enriching one would suppress the skip escape below for a fixture that never gets emitted, turning an honest skip into a red that blames your app.
+
+## Provenance is written into the file
+
+Every inferred fixture says where it came from, in one of exactly two forms:
+
+- `/* inferred from <fn>'s return annotation */`
+- `/* inferred from the OpenAPI example for <METHOD> <path> */`
+
+That is not decoration. It is the line that tells a reader whether to trust the value in front of them, and it is greppable: `grep -rn "inferred from" flawless/unit/` enumerates every fixture the tool derived rather than a human typed. Here is one real emitted statement with all three states in it — annotation, OpenAPI, and an admitted gap:
+
+```ts
+// TODO(flawless): some return shapes could not be inferred — give them fixtures.
+vi.mock("@/lib/data", () => ({ listCases: vi.fn(async () => ([{"id":1,"title":"flawless-title","status":"open","archived":true}])) /* inferred from listCases's return annotation */, getBillingSummary: vi.fn(async () => ({"plan":"pro","seats":12,"renewsAt":"2026-09-01"})) /* inferred from the OpenAPI example for GET /api/billing/summary */, getLedger: vi.fn(async () => ({})) }));
+```
+
+One marker per module mock, however many of its bindings were uninferrable — the marker is what a human answers, not the binding.
+
+## An enriched dep is real coverage
+
+The distinction that makes the markers worth having: **an inferred fixture removes the escape hatch.**
+
+An RSC spec whose data mock the tool admits it could not infer catches the resulting crash and reports a skip:
+
+```ts
+  } catch (err) {
+    if (/notFound\(\) called|NEXT_REDIRECT|NEXT_NOT_FOUND/.test(String(err))) return;
+    // A data mock whose shape could not be inferred (see the TODO above).
+    console.warn(`[flawless] data fixture missing, skipping: ${String(err)}`);
+    t.skip();
+    throw err;
+  }
+```
+
+Passing would claim coverage that does not exist. Failing would blame the application for a fixture the tool never had. A skip that names its reason is the only honest third option.
+
+The moment every dep in that component resolves, those three lines are **gone** from the emitted spec — the catch keeps only the `notFound()`/`redirect()` arm and rethrows everything else. Which means a *wrong* inferred fixture now fails red instead of hiding. That is the trade the inference makes, and it is the right one: the tool takes coverage credit only for fixtures it is willing to be wrong about in public.
+
+## What you'll see
+
+A Next.js-mode run with a local spec, over one page component:
+
+```text
+nextjs: /srv/casebook (router=app, api-routes=0, app-resolver=<none>)
+nextjs: enriched routes from ./openapi.json (paths=1)
+nextjs: wrote 5 mock file(s) under flawless/mocks/
+nextjs: merged dev deps + flawless:* scripts into /srv/casebook/package.json
+
+Summary:
+  [ok] unit-browser   files:3 findings:0  unit tests for 1 component(s) (browser specs skipped — add perf-harness to the task list for the host they need): DashboardPage
+```
+
+`api-routes=0` then `paths=1` is the story in two lines: the static walk over `app/api/**` found no route files, and the local spec supplied the table anyway. A spec source the run cannot use says so and carries on with what it has — `nextjs: could not parse ./openapi.yaml as OpenAPI JSON — ignoring` is a real limit, not a typo.
+
+The count that matters is in `flawless/REPORT.md`, under a section that is **always present**, because a silently absent table reads as zero debt:
+
+```text
+## Hand-work remaining
+
+Counted for `unit-browser` — the load and provider files carry their
+own `TODO(flawless)` markers, not counted here. `e2e` did not report a count (not selected, or it failed), so this is not a total.
+
+| Kind | Markers | Example file |
+| --- | ---: | --- |
+| `uninferred-return-shape` | 1 | `flawless/unit/DashboardPage.test.tsx` |
+```
+
+Markers are tallied at the emission sites as each one is planted, never by grepping the emitted text — the wording is presentation and changes freely. The two kinds this page is about are `uninferred-return-shape` and `server-action-stub`.
+
+## Answering a TODO
+
+Three answers, in descending order of how long they last.
+
+**1. Annotate the source.** The best fix is not in the spec at all. Give the dep the `Promise<T>` it was missing:
+
+```ts
+export interface Ledger {
+  balanceCents: number;
+  currency: "GBP" | "USD";
+}
+
+export async function getLedger(): Promise<Ledger> {
+  return db();
+}
+```
+
+Re-run. The fixture appears with its provenance, the skip escape leaves the file, and REPORT.md's section turns into `none — unit-browser emitted no TODO markers.`
+
+```ts
+getLedger: vi.fn(async () => ({"balanceCents":1,"currency":"GBP"})) /* inferred from getLedger's return annotation */
+```
+
+Your application got a type it should have had, and every future regeneration re-derives the fixture for free. Change `Ledger`, and the fixture changes with it — which no hand-typed mock has ever done.
+
+**2. Fill the fixture by hand, in a colocated spec.** Some deps have no derivable shape in principle — an unannotated `getDb()` client factory, a dotted `db.query.cases.findMany()`. Generate with `--colocate` so the spec lives beside the source and is *kept* on re-runs:
+
+```bash
+flawless-react "src/**/*.tsx" --tasks unit-browser --colocate
+```
+
+Replace the `{}`, delete the marker, and **tighten the assertion at the same time** — this is the step people skip:
+
+```ts
+expect(screen.getByText("Fairhaven Trust")).toBeInTheDocument();
+```
+
+A fixture nobody asserts on can be wrong forever. If the value you invented never has to reach the DOM, you moved the vacuous pass rather than removed it. Your edit also breaks the spec's provenance stamp, which is what protects the file from `--force` — leave the stamp line itself alone; see [Colocated specs](/docs/recipes/colocated-specs/).
+
+**3. Say that `{}` is correct.** Sometimes it is. If every consumer of a handle is itself mocked — a `getDb` whose queries are all stubbed above it — an opaque `{}` *is* the right fixture. Replace the TODO with a comment saying so, so the next reader does not re-litigate it.
+
+What you must not do is delete a reasoned `test.skip` or swap it for a hollow assertion. The skip is intended output: it names the precondition the spec is missing, and deleting it deletes the only record that coverage is absent.
+
+After filling fixtures, narrow the re-run to the specs your edits touched:
+
+```bash
+flawless-react --nextjs . --tasks unit-browser --changed HEAD~1
+```
+
+## Flags
+
+| Flag | Default | Notes |
+|---|---|---|
+| `--tasks unit-browser` | *interactive* | The task that emits the mocks. Everything on this page is its output. |
+| `--nextjs [<path>]` | off | The only mode with an API route table, so the only mode where the OpenAPI join can fire. Annotation inference works everywhere. |
+| `--api <spec>` | none | Local OpenAPI file, highest precedence. For the dep join and the MSW emit it must be **JSON**; YAML is reported and ignored. |
+| `--swagger-url <url>` | `.../api/docs` in Next.js mode | Fetch the spec from a live endpoint. `--swagger-url=off` skips the auto-try. |
+| `--colocate` | off | Specs beside the sources as `<name>.flawless.test.tsx`, kept on re-runs — where a hand-filled fixture survives. |
+| `--force` | off | Rewrites colocated specs, but only while their provenance stamp matches. Hand-edited ones are kept and listed. |
+| `--changed [REF]` | `HEAD` | After generating, run only the specs affected by files changed since REF. |
+| `--run-tests` | off | Run the suites immediately — the fastest way to see which fixtures are still wrong. |
+
+## Limits
+
+Honest about what doesn't work yet:
+
+- **Dotted callees are never enriched.** `db.query.cases.findMany()` gets a `vi.fn` at the *leaf* of the dotted path — mocking the root as a function would make `.query` undefined and throw on correct code — but the leaf returns `{}` and keeps the marker.
+- **Unannotated client factories have no derivable shape.** A `getDb()` returning a live handle is not a fixture problem; on the dogfood app, 21 surviving markers were exactly this.
+- **`cache()`-wrapped exports** are not unwrapped, so the annotation behind them is not read.
+- **Generics bail**, and **two distinct shapes bail** — in actions and annotations alike. **`node_modules` types never resolve**; workspace packages do.
+- **The OpenAPI join needs a spec source.** Without `--api`, a reachable `--swagger-url`, or a live spec at the default URL, a recorded single-fetch wrapper has nothing to join to and stays a TODO.
+- **`--api` outside Next.js mode does nothing for `unit-browser`.** It scaffolds the perf host's mock server; the dep join and the MSW emit read the Next.js route table.
+- **A YAML spec is not parsed for the route join.** It works for the `perf-harness` mock server; for the join, convert it: `bunx js-yaml api.yaml > api.json`.
+- **Cross-file re-exports of actions are not chased.** `export { save } from "./other"` in a `"use server"` module records nothing.
+
+None of these produce a wrong fixture. They produce a marker, which is the point. A count that stays flat while the map gets more accurate is a real result — [the case study](/docs/case-study/) has a round where exactly that happened, and the honest headline was `118 → 118`.
+
+## Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| `0` | Every selected task succeeded. Markers are not failures — a run with 40 TODOs still exits `0`. |
+| `1` | A task failed or threw, or a `--run-tests` / `--changed` suite run went red. |
+| `2` | Usage error: bad flag or value, no positional and no interactive TTY, no files matched, nothing analysable found. |
+
+## Related
+
+- [Next.js adoption](/docs/recipes/nextjs-adoption/) — get the API route table, the swagger and the provider wrapper in place first; the OpenAPI join has nothing to join to without them.
+- [Colocated specs](/docs/recipes/colocated-specs/) — go there when the fixture has to be hand-written and must survive every future regeneration.
+- [Compound parts](/docs/recipes/compound-components/) — the other large marker cluster, where the answer is a Root wrapper rather than a fixture.
+- [Safe regeneration](/docs/recipes/safe-regeneration/) — what a re-run rewrites versus keeps, before you point `--force` at a suite you have filled in.

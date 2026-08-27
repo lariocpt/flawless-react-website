@@ -1,0 +1,274 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Wire it into CI
+description: The --ci JSON blob on stdout, the stderr diagnostics stream, results status words, testRun modes, --run-tests, --changed narrowing, REPORT.md, and an exit-code table.
+---
+
+**Goal:** run flawless-react unattended, capture a result a script can branch on, and never let a green step mean "nothing ran".
+
+## The smallest CI-safe run
+
+```bash
+bunx flawless-react "src/**/*.tsx" --nextjs . --tasks perf-static,a11y,react-rules --ci
+```
+
+`--ci` is exactly `--no-interactive --json`, and both halves earn their place. **`--no-interactive`** turns a missing argument into an error instead of a prompt: with no positional and no `--tasks`, a TTY run opens a checkbox menu, and a runner that allocates a pty sits on it until the job's timeout kills it. **`--json`** makes stdout exactly one JSON object — the summary table is suppressed and the progress narration goes away.
+
+What it does *not* do is select every task. **A non-interactive run with no `--tasks` runs `perf-harness` alone** — not all seven. Name the ids every time: `perf-harness`, `unit-browser`, `perf-static`, `a11y`, `react-rules`, `e2e`, `load`.
+
+## What lands on stdout
+
+```json
+{
+  "exitCode": 0,
+  "outDir": "/repo/flawless",
+  "results": [
+    { "id": "perf-harness", "ok": true, "status": "generated", "findings": [],
+      "outputs": ["/repo/flawless/playwright.config.ts", "…"],
+      "summary": "scaffolded perf suite for 3 of 3 component(s): Card, Dashboard, Hello" },
+    { "id": "perf-static", "ok": true,
+      "outputs": ["/repo/flawless/reports/Card.perf-static.json"],
+      "findings": [
+        { "rule": "perf/hook-extraneous-dependency", "severity": "warn", "source": "perf-static",
+          "file": "/repo/src/Card.tsx", "line": 11, "column": 3,
+          "message": "Card: useEffect lists \"open\" in its deps but never reads it — the hook re-fires whenever \"open\" changes, for no benefit." }
+      ],
+      "summary": "static perf analysis: 2 finding(s) across 3 root(s)" }
+  ],
+  "keptScripts": []
+}
+```
+
+| Key | Present | What it is |
+| --- | --- | --- |
+| `exitCode` | always | Mirrors the process exit code, suite failures included — a consumer parsing stdout alone sees them without plumbing around `$?`. |
+| `outDir` | always | Absolute path everything was written to. |
+| `results` | always | One `TaskResult` per selected task: `id`, `ok`, `outputs`, `findings`, `summary`, plus `error` when it failed and `status` on `perf-harness`. |
+| `keptScripts` | always | `flawless:*` scripts whose value the tool does not recognise as one of its own spellings, so it left them alone. |
+| `testRun` | when the phase was reached | What `--run-tests` / `--changed` actually did. The field this page turns on. |
+| `errors` | only when non-empty | Failures belonging to no task, such as a Next.js emit that threw. Branch on its *presence*. |
+
+Parse the whole of stdout, not a line of it — the blob is pretty-printed.
+
+## Two streams, one rule
+
+Suppressing the table is not a vow of silence. **stdout is the JSON; diagnostics stay on stderr** — and `--ci` still emits them:
+
+```text
+warning: skipping /repo/src/util.tsx: parseFile: could not locate a React component in /repo/src/util.tsx. Expected an exported function/arrow component or a `const Name: React.FC<...> = ...` declaration.
+warning: "test": "bun test" has no path filter, so it will also collect the colocated *.flawless.test.tsx specs and run them under the wrong runner. Scope it (e.g. "bun test tests") or run flawless without --colocate.
+nextjs: could not parse ./openapi.json as OpenAPI JSON — ignoring
+```
+
+Every one of those runs exits **0**, with every task `ok: true` and a short findings list — short because a file was skipped and the spec that would have filled the mock fixtures was unreadable. That is the failure mode: **a CI step that captures only stdout throws away the only account of the work the run quietly dropped.**
+
+Capture both. The clean way is to redirect the *script*, not the command:
+
+```bash
+#!/usr/bin/env bash
+# scripts/flawless-ci.sh — stdout is the artefact, stderr stays in the job log
+set -uo pipefail
+exec 3>&1 1>flawless-run.json
+
+bunx flawless-react "src/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser,e2e --ci --run-tests
+code=$?
+
+exec 1>&3 3>&-
+exit "$code"
+```
+
+`flawless-run.json` is the machine-readable result; the warnings still land in the job log.
+
+## Per-task status — generated, refreshed, kept
+
+`perf-harness` carries a `status` word saying where the run sat in the suite lifecycle, read off the version banner on its `playwright.config.ts`. None of the three is a failure — a re-run is never refused:
+
+| `status` | When | What was written |
+| --- | --- | --- |
+| `generated` | fresh out dir | The whole harness. |
+| `refreshed` | a re-run over an existing suite | Every derived file rewritten as a fresh scaffold would; write-once files untouched. |
+| `kept` | a `--changed` run over an existing suite | Nothing — `outputs` is empty and the summary reads `harness kept (generated by flawless-react 0.3.0, tool is 0.3.0)`. |
+
+Gating on a clean `git status` after generation works: emission is deterministic and `REPORT.md` has no timestamp, so a same-version refresh usually diffs nothing. A tool upgrade moves the derived files and that banner.
+
+## `--run-tests`: what actually executes
+
+Only three tasks produce a suite `--run-tests` executes: `unit-browser` runs `flawless:unit`, `perf-harness` runs `flawless:perf`, `e2e` runs `flawless:e2e`, and the first two together also run `flawless:browser` — browser specs mount through the perf host, so that script exists only when both were generated. Standalone suites use `test:*` and have no e2e script. Each invocation is announced on stderr:
+
+```text
+› bun run flawless:unit
+
+› bun run flawless:perf
+
+failed suites: perf
+```
+
+Before any Playwright suite the runner attempts `bunx playwright install chromium` — no `--with-deps`, which sudo-prompts and would hang an unattended run — under a five-minute kill timer. Set `FLAWLESS_SKIP_BROWSER_INSTALL=1` if your image bakes the browser in.
+
+`load` is the deliberate exception: it emits `flawless/load/routes.pipes` and declares `flawless:load` in the same breath, but `--run-tests` does not execute it — a default CI run should not fire a paced load at whatever environment is reachable. Run it as its own step.
+
+## Exit 0 does not mean the suites passed
+
+Ask for a test run with a task selection that generates no runnable suite, and the run exits **0**:
+
+```bash
+flawless-react "src/**/*.tsx" --nextjs . --tasks perf-static --ci --run-tests
+```
+
+```json
+{
+  "exitCode": 0,
+  "outDir": "/repo/flawless",
+  "keptScripts": [],
+  "testRun": {
+    "mode": "none",
+    "reason": "--run-tests ran no suite: none of the selected task(s) (perf-static) generates one that --run-tests executes. Select at least one of perf-harness, unit-browser, e2e."
+  }
+}
+```
+
+Nothing failed, and the static analysis really did run. But **zero specs executed**, and a gate reading `exitCode` alone has just reported a passing test suite that does not exist. `testRun` is what makes the exit code explicable rather than merely correct:
+
+| `testRun` | Meaning |
+| --- | --- |
+| `{ mode: "generated", green }` | The full generated suites ran. `green` is what folded into `exitCode`. |
+| `{ mode: "affected", green }` | A `--changed` narrowed run ran. Same promise. |
+| `{ mode: "none", reason }` | **Zero suites executed**, and `reason` says which of three causes: nothing selected generates a runnable suite, nothing was affected, or the selected tasks plan no run for the work that was. |
+| absent | The run never *reached* the phase. Read this as "look at `results`". |
+
+The invariant to rely on: `mode: "none"` **if and only if** nothing executed, so `green` never appears on a phase that ran nothing.
+
+Absent is not "no run was asked for". Add `a11y` to that command on a machine with no biome and the run asks for a test run it never reaches:
+
+```json
+{ "id": "a11y", "ok": false, "outputs": [], "findings": [], "summary": "a11y scan failed",
+  "error": "biome executable not found. Looked in this package's node_modules, in /repo/node_modules/.bin/biome and every ancestor, and on PATH." }
+```
+
+`exitCode` is 1, there is no `testRun` key at all, and `results` names the cause — the standalone binary cannot carry biome, so `a11y` and `react-rules` need one in the target project. A task failed, so the suite run never happened.
+
+The gate that reads all of this is three lines of `jq` over the captured blob:
+
+```bash
+jq -e '.exitCode == 0'              flawless-run.json
+jq -e '.testRun.mode != "none"'     flawless-run.json   # something actually ran
+jq -e '(.errors // []) | length==0' flawless-run.json   # nothing failed outside a task
+```
+
+The middle line does double duty: it also fails when `testRun` is absent — the phase was never reached, which is not a pass either.
+
+## Narrowing the run — `--changed [REF]`
+
+A full suite is the wrong unit of work when three components changed. `--changed` narrows **only the run** — analysis and generation stay complete:
+
+```bash
+flawless-react "src/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser,e2e --ci --changed origin/main
+```
+
+With no value it compares the worktree against `HEAD`. It selects:
+
+- **unit specs** through vitest's module graph (`vitest related`), so it is transitively correct for free;
+- **profile and browser specs** by component name, with an anchored `--grep` — anchored because a bare `Card` would also select `CardHeader` and `CardTitle`;
+- **e2e routes whose page tree renders a changed component** — the relationship a path filter cannot see, since editing a leaf `StatusPill` changes what every page rendering it produces without touching those pages' files.
+
+Generation is deliberately not narrowed: the profiling host is a single bundle of every component, so a partial regeneration would leave a host that no longer matches its specs. It is not where the time goes anyway — analysing 99 files took 463 ms median, while running every spec they produce took seventeen minutes.
+
+Over an existing suite the harness is **kept**, which is a success, so any task selection reaches the affected tests. On stderr:
+
+```text
+› bun run flawless:perf -- --grep \b(Hello): 
+
+› bun run flawless:e2e -- --grep \bGET (/items/\[id\]) 
+```
+
+The narration that names the narrowing — `changed: 1 source file(s) → 1 component spec(s), 0 route(s)` — is stdout, so `--ci` suppresses it with the table. Those `›` lines are what you have instead: one more reason to capture stream 2.
+
+Nothing affected is not a pass:
+
+```json
+{ "exitCode": 0, "testRun": { "mode": "none", "reason": "changed: nothing affected — no specs to run" } }
+```
+
+Pass `--changed` and `--run-tests` together and stderr says it is taking the narrow set, rather than resolving the conflict in silence. `--changed --force` regenerates instead of keeping: an explicit force outranks the keep.
+
+## Flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--ci` | off | `--no-interactive --json`: never prompt, and stdout is exactly one JSON blob. |
+| `--tasks <csv>` | `perf-harness` | Subset of the seven ids. An unknown id is a hard error listing the valid ones. |
+| `--run-tests` | off | Run the generated suites. Only `perf-harness`, `unit-browser` and `e2e` produce one it executes. |
+| `--changed [REF]` | off | Run only the specs an edit affects, against `REF` (default `HEAD`); generation stays complete. |
+| `--out <dir>` | `./.flawless`, or `<nextRoot>/flawless` | A non-default `--out` is **not** auto-excluded — `--exclude` it, or a second sweep analyses the suite the first wrote. |
+| `--heaps MODE` | `stress` | `off` in CI unless leak-hunting: each snapshot is tens of megabytes, one either side of every scenario. |
+| `--no-inline-summary` | off | Skip the `<Component>.flawless.json` sidecars, if CI must not touch your source tree. |
+| `--force` | off | Also regenerate what a re-run keeps. Rarely what a CI job wants — see [Regenerate without losing work](/docs/recipes/safe-regeneration/). |
+
+## A CI job you can lift
+
+```yaml
+flawless:
+  runs-on: ubuntu-latest
+  env:
+    FLAWLESS_SKIP_BROWSER_INSTALL: "1"   # the runner image already has chromium
+  steps:
+    - uses: actions/checkout@v4
+      with: { fetch-depth: 0 }           # --changed needs the base ref
+    - uses: oven-sh/setup-bun@v2
+    - run: bun install
+    - name: generate + run affected specs
+      run: ./scripts/flawless-ci.sh
+    - name: gate on the result
+      run: |
+        jq -e '.exitCode == 0' flawless-run.json
+        jq -e '.testRun.mode != "none"' flawless-run.json
+        jq -e '(.errors // []) | length == 0' flawless-run.json
+
+    - name: keep the evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: flawless
+        path: |
+          flawless-run.json
+          flawless/REPORT.md
+          flawless/reports/
+```
+
+`fetch-depth: 0` is load-bearing: a shallow clone has no `origin/main`, and a ref git cannot resolve is a hard **exit 2** naming the cause, not a comparison that quietly finds nothing.
+
+```text
+git cannot resolve the ref "origin/main" in /repo. Pass a ref that exists here (a shallow CI clone may not have it).
+```
+
+And `if: always()` on the upload — the evidence you most want is from the red run.
+
+Three artefacts are worth uploading. **`flawless-run.json`** is the only place `exitCode`, `testRun` and `errors` appear together. **`flawless/REPORT.md`** accounts for every component found — how many mount in the browser host, how many cannot and why, which files yielded none, kept scripts, the remaining `TODO(flawless)` count, and a byte-stable repro line. **`flawless/reports/`** holds the per-task JSON plus a `summary.json` carrying a `ts` field, so it churns every run — do not gate `git status` on it.
+
+## Exit codes
+
+| Situation | Exit |
+| --- | --- |
+| Every selected task `ok`, and any suite run that happened was green | `0` |
+| A run was asked for and **nothing ran** (`testRun.mode: "none"`) | `0` — read `testRun`, not the code |
+| A task failed — `results[].ok` is `false`, `error` names it | `1` |
+| A suite went red — every `results[]` entry is `ok: true`, the outcome is in `testRun.green` | `1` |
+| A failure belonging to no task, such as a Next.js emit that threw — `errors` is present | `1` |
+| Usage error: unknown flag, unknown task id, no positional outside a TTY, `no files matched`, a `--changed` ref git cannot resolve | `2` |
+
+## Limits
+
+Honest about what doesn't work yet:
+
+- **Only `perf-harness` carries a `status` word.** The other six have no lifecycle field, so "was this a refresh?" is answerable for the harness alone.
+- **`load` is emit-only.** No flag runs the pipes as part of a flawless invocation; `bun run flawless:load` is a separate step with its own environment contract.
+- **A clean findings list means "nothing this analysis can prove"**, not "nothing wrong". There is no type checker behind it — every extraction that fails is recorded rather than silently dropped.
+
+Driving the tool from TypeScript rather than a shell — `runFlawless`, `analyse()`, `UsageError` — is in the [CLI reference](/docs/cli/) and the [agent skills](/docs/agent-skills/).
+
+## Related
+
+- [Regenerate without losing work](/docs/recipes/safe-regeneration/) — read before a CI job starts passing `--force`: what a re-run rewrites, what stays yours.
+- [Triage the findings](/docs/recipes/triage-findings/) — when the blob comes back full of `perf-static`, `a11y` and `react-rules` findings: fix versus suppress.
+- [Route e2e against a seeded database](/docs/recipes/route-e2e/) — the environment `--tasks e2e` needs before its specs mean anything.
+- [Load pipes with crust](/docs/recipes/crust-load-pipes/) — the step `--run-tests` will not run for you, and the setup module that stops it measuring a login page.

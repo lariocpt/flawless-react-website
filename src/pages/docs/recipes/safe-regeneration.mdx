@@ -1,0 +1,235 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Regenerate without losing work
+description: The generated/refreshed/kept lifecycle, the write-once set (budgets.json, host/main.tsx, provider.fixtures.ts, mock/routes.ts), params.json and flawless:* merges, --force's stamp check, and the registry-split escape.
+---
+
+**Goal:** re-run `flawless-react` over a suite you have already adopted — after a source change, a tool upgrade, a new component — and know *before* you press enter which files it rewrites, which it merges, and which it will not touch under any flag.
+
+The failure mode is not dramatic. Nothing crashes. You re-run six weeks after generating, the run says `ok`, and the p95 budget you tightened to an observed number is back to the generated default — so the gate that was protecting you now passes on anything. A regeneration you cannot predict is one you stop doing, and a suite that stops tracking your source stops meaning much.
+
+## A re-run is never refused
+
+Most scaffolders refuse the second run — *directory not empty* — which teaches everyone to `rm -rf` the output first, taking the tuned budgets and hand-wired provider with it. flawless-react does not refuse. It **classifies**, and the word lands where you can read it back: the `perf-harness` TaskResult, the `--ci` blob's `results[].status`, REPORT.md's `Status` column.
+
+| Status | When | What it wrote |
+| --- | --- | --- |
+| `generated` | the out dir has no `playwright.config.ts` yet | everything |
+| `refreshed` | a suite is already there | every derived file, as a fresh scaffold would; write-once untouched; exit 0 |
+| `kept` | `--changed` without `--force` | nothing at all — the run narrows to the affected tests |
+
+An exit 1 from a re-run means a task actually failed — never the old "harness already exists" refusal, which is gone.
+
+### The plain re-run
+
+```bash
+flawless-react "src/**/*.tsx" --tasks perf-harness,unit-browser --no-interactive
+```
+
+**What you'll see** — the second run over the same out dir:
+
+```text
+Summary:
+  [ok] perf-harness   files:12 findings:0  refreshed perf suite for 2 of 2 component(s): Counter, StatusPill; kept host/main.tsx, budgets.json (delete one to regenerate it)
+  [ok] unit-browser   files:8 findings:0  unit tests for 2 component(s): Counter, StatusPill
+```
+
+`refreshed`, not `scaffolded` — the tool found a suite. And it names every write-once file it stepped around, escape hatch attached, so you never have to remember which ones those are.
+
+Emission is deterministic and REPORT.md carries no timestamp, so commit the suite, run that exact command again, and `git status --porcelain` prints nothing at all. **Any** diff a same-version refresh produces is a real change in your source or in the analysis. After a tool upgrade the derived files move, and so does the version banner on the first line of `playwright.config.ts` — the banner a later `--changed` run reads back.
+
+## Flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--force` | off | Also regenerate what a re-run keeps: colocated specs (stamp-checked), e2e route specs, the provider wrapper. It does **not** reach the write-once set. |
+| `--changed [REF]` | off | Narrow the *run* to specs affected by files changed since `REF` (default `HEAD`). The harness is kept. |
+| `--colocate` | off | Write unit specs beside their sources — the one placement whose specs survive a `--force`. |
+| `--out <dir>` | `./.flawless` | `<project>/flawless` under `--nextjs`. The out dir is where "derived" means "rewritten". |
+| `--nextjs [<path>]` | off | Also merges dev deps and `flawless:*` scripts into your `package.json` — a merge, not an overwrite. |
+| `--ci` | off | `--no-interactive --json`. stdout is the result blob and nothing else. |
+
+## Three tiers of ownership
+
+"Commit before regenerating" is correct and not enough — it tells you how to recover, not what to expect. Every file the tool can write sits in one of three tiers.
+
+### Tier 1 — protected under every flag
+
+These exist because their contents **cannot be recovered from the analysis**:
+
+- `flawless/budgets.json` — thresholds you tightened to an observed p95.
+- `flawless/host/main.tsx` — the provider chain, MSW wiring and hand registrations in the `ALL` spread.
+- `flawless/provider.fixtures.ts` — the typed holes for your store's initial state.
+- `flawless/mock/routes.ts` — OpenAPI-derived fixture bodies you edited; its header promises write-once.
+- `flawless/e2e/global-setup.ts` and `flawless/mocks/handlers.ts` — login wiring, response bodies.
+- `flawless/load/routes.setup.ts` — the anti-vacuous probe, better hand-written than generated.
+
+The escape is uniform, and the run that skipped the file prints it: **delete it and re-run.** After updating your API spec, `rm flawless/mock/routes.ts` — there is no flag, on purpose.
+
+Protection costs something: a frozen file never receives a later version's improvement. `flawless/load/README.md` was write-once once, and suites carried a README that never learned `LOAD_BASE` must point at a production build. That is why this list is *short*.
+
+### Tier 2 — merge-preserving
+
+Regenerated, but never at the cost of what you put there.
+
+**`flawless/e2e/params.json`** holds seeded record ids, read by the route e2e specs and the load pipes alike. The merge is additive: a route whose page *this* run did not analyse keeps its ids, so a narrower glob is not a decision to discard the rest. `--force` prunes entries that hold nothing; it never prunes a value.
+
+Fill an id, force a regeneration, and the `/things/[id]` entry still reads `"id": "b3f0c2a1-seeded"` afterwards:
+
+```bash
+bunx flawless-react "app/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser,e2e --force --no-interactive
+```
+
+So does anything under `landing` — which is *why* a deliberate redirect belongs in `params.json` rather than in the spec asserting it. `--force` regenerates e2e specs, so an expectation recorded in a spec is advice the next regeneration deletes.
+
+**`flawless/load/routes.pipes`** folds this run's routes into the existing file, matching pipes by the `<name>` in their `stats --out` path rather than by line number. Only a pipe's comment state changes — a rate you tuned survives, and a pipe *you* commented out is left alone.
+
+**The `flawless:*` scripts** follow the same rule as a file: a value the tool recognises as one of its own spellings, current or past, upgrades in place; anything else is your work. Customise `flawless:e2e` and the run says so:
+
+```text
+nextjs: kept 1 script(s) with commands this tool does not recognize: flawless:e2e — delete a key from package.json to take the tool's current command
+```
+
+The same fact lands in REPORT.md as `> Kept script(s): …` and in the `--ci` blob as `keptScripts`. The suite's own `package.json` merges the same way: your fields win.
+
+### Tier 3 — stamp-guarded
+
+Colocated `*.flawless.test.tsx` specs are kept on a plain re-run and **stamp-checked** under `--force`. Each opens with a provenance line — `// @flawless-generated sha256:4d604d121e81417f flawless-react@0.3.0+a852b2c` — hashing everything below it, computed after the style pass.
+
+| State on disk | plain re-run | `--force` |
+| --- | --- | --- |
+| no spec yet | written, stamped | written, stamped |
+| stamp matches body | kept | **rewritten** |
+| stamp mismatch — you edited or reformatted it | kept | kept, listed as hand-edited |
+| no stamp line — pre-stamp, or you deleted it | kept | kept, listed as pre-stamp |
+
+Deleting the stamp line does not claim the file; it demotes it to pre-stamp, kept *and* nagged about. The unit of ownership is the file — full treatment in [Colocated specs](/docs/recipes/colocated-specs/).
+
+**Everything else is rewritten, deliberately**: out-dir specs, configs, generated prose, MSW boilerplate, REPORT.md, sidecars, `host/registry.ts`.
+
+## `--force`, and what it still will not do
+
+`--force` means one thing: *also regenerate what a plain re-run keeps* — colocated specs, e2e route specs, and `flawless/provider.tsx`, so a layout's changed provider chain reaches an existing suite. It is not a bigger hammer for the write-once set, and there is no flag that is.
+
+Run it over a colocated suite with one spec you have edited:
+
+```bash
+flawless-react "src/**/*.tsx" --tasks perf-harness,unit-browser --colocate --force --no-interactive
+```
+
+```text
+  [ok] unit-browser   files:7 findings:0  unit tests for 2 component(s) (1 hand-edited or reformatted colocated spec(s) kept — delete to regenerate: src/components/Counter.flawless.test.tsx): Counter, StatusPill
+```
+
+`files:7`, not 8 — the edited spec was not among them, and the run names it. Kept specs also drop out of the hand-work tallies: a `TODO(flawless)` in a render nobody wrote is not your debt. Without the flag, the e2e task reports what a force would have changed:
+
+```text
+  [ok] e2e            files:6 findings:0  e2e specs for 2 route(s): /, /things/[id]; kept 2 existing spec(s) (--force to regenerate)
+```
+
+**Reach for `--force` when you can name the file you want back.** A plain re-run already rewrites every derived file; the extra reach is exactly the set with no stamp behind it. Hand edits to an e2e spec or `provider.tsx` are lost, and a committed baseline is what makes the rewrite reviewable.
+
+## `--changed` keeps the harness
+
+`--changed` narrows the **run**, not the generation — the profiling host is a single bundle of every component, so a partial regeneration would leave a host that no longer matches its specs. The harness is therefore not rewritten at all:
+
+```bash
+flawless-react "src/**/*.tsx" --tasks perf-harness,unit-browser --changed --no-interactive
+```
+
+```text
+Summary:
+  [ok] perf-harness   files:0 findings:0  harness kept (generated by flawless-react 0.3.0+a852b2c, tool is 0.3.0+a852b2c)
+  [ok] unit-browser   files:8 findings:0  unit tests for 2 component(s): Counter, StatusPill
+```
+
+`files:0`, and the two versions side by side — that is what "did nothing, on purpose" looks like. A suite predating the banner reports `unknown version` rather than substituting the running tool's.
+
+The affected set comes from vitest's module graph, component names, and any e2e route whose page tree renders a changed component — the relationship a path filter cannot see, since editing a leaf `<StatusPill>` changes what every page rendering it produces without touching those pages' files.
+
+Two traps:
+
+- **`--no-interactive` without `--tasks` runs `perf-harness` alone**, which leaves the affected run no unit or e2e suites to execute. Name the tasks:
+
+  ```bash
+  flawless-react "src/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser,perf-static,a11y,react-rules,e2e,load --changed --no-interactive
+  ```
+
+- **`--force` outranks the keep.** `--changed --force` regenerates — an explicit force is an explicit request.
+
+A kept harness is a *success*, so the affected run still happens and suite failures still reach the exit code. `--ci --changed` in a pre-push hook is honest about what it ran.
+
+## The registry-split migration
+
+One case a re-run cannot fix — stated up front, because the tool cannot fix it either and says so.
+
+`host/main.tsx` is write-once; your providers live there. The mount tables it reads were split out into the derived `host/registry.ts`, and that split is what lets a plain refresh register newly analysed components *through* a wrapper the tool must not touch.
+
+A `main.tsx` generated before the split bakes its own tables in. It never sees the refreshed registry, so components the analyser found this run cannot mount — and because write-once is absolute, no flag may rewrite it. The run warns and names the escape:
+
+```text
+[flawless] /tmp/regen-demo/.flawless/host/main.tsx predates the registry split: it bakes in its own component tables, so newly analysed components cannot mount through it, and no flag may rewrite a write-once file — delete host/main.tsx and re-run (provider wiring regenerates from --provider), or port your hand wiring and import "./registry".
+```
+
+The run still exits 0, and still writes `host/registry.ts` — inert, beside the monolith. Either **port it**, replacing the baked-in tables with an import of `./registry` and keeping every lookup on the `ALL` / `ALL_FN_PROPS` / `ALL_WRAP_IN` spreads, or **delete and re-run**, re-applying your wiring to the fresh file. Either way the next summary drops `host/main.tsx` from its kept list, and the migration note with it.
+
+## Proving a run happened
+
+Never take stdout as evidence, especially from a script or an agent. A summary scrolls past, a tail gets truncated, and a run against the wrong cwd prints the same words as one against the right cwd.
+
+**REPORT.md is rewritten every run**, and its task row carries the status word — so a committed report answers "what did that run actually do?" later:
+
+```text
+| `perf-harness` | 13 | 0 | refreshed | refreshed perf suite for 2 of 2 component(s): Counter, StatusPill; kept budgets.json (delete one to regenerate it) |
+```
+
+A missing REPORT.md diff means the run did not happen, or happened somewhere else.
+
+**Write the result blob to a file.** Under `--ci`, stdout is the blob and nothing else, so a plain `> run.json` redirect on this command captures it verbatim:
+
+```bash
+flawless-react "app/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser,e2e --ci
+```
+
+Then ask the file, not the terminal:
+
+```bash
+jq -c '{exitCode, outDir, keptScripts, status: (reduce .results[] as $r ({}; .[$r.id] = $r.status))}' run.json
+```
+
+```text
+{"exitCode":0,"outDir":"/tmp/regen-next/flawless","keptScripts":["flawless:e2e"],"status":{"perf-harness":"refreshed","unit-browser":null,"e2e":null}}
+```
+
+`outDir` catches the mistake worth catching: in Next.js mode the default out dir resolves against the **target root**, so a scratch run launched from the wrong cwd rewrites another project's `package.json` scripts and reports success. `runFlawless` asks the same discipline — it returns `&#123; exitCode, outDir, results, trees &#125;` and never calls `process.exit`, so write that object to a result file and assert on the file.
+
+Then check that `git status --porcelain` matches the run kind: tiny for a no-force refresh; under `--force`, the untouched colocated specs move while the ones you hardened stay out of the diff.
+
+## Limits
+
+Honest about what doesn't work yet:
+
+- **There is no dry run.** No flag previews a regeneration. Commit, run, read the diff.
+- **`--force` has no per-file granularity.** To get one e2e spec back, force the run and revert the rest.
+- **Only colocated specs carry a stamp.** e2e route specs and `provider.tsx` are rewritten under `--force` with no ownership check at all.
+- **The tool cannot migrate a pre-split `host/main.tsx`.** Write-once is absolute — `budgets.json` rests on that promise — so the migration is yours.
+- **`--changed` cannot narrow generation**, and **nothing is backed up**: no `.bak`, no undo, no restore. Version control is the recovery mechanism, and that is the design.
+
+## Exit codes
+
+| Situation | Exit |
+| --- | --- |
+| Generated, refreshed or kept — every selected task ok | `0` |
+| A pre-split `main.tsx` warning, or any kept-file notice | `0` — a notice, not a failure |
+| A task failed (analysis error, unparseable `params.json`) | `1` |
+| `--run-tests` / `--changed` ran suites and one was red | `1` |
+| Bad arguments — unknown flag, missing positional | `2` |
+
+Under `--ci` the blob's `exitCode` mirrors the process exit code, suite failures included. Read `testRun` beside it: `mode: "affected"` or `"generated"` means suites ran and `green` folded into the code; `mode: "none"` means zero ran, and says why. Without it, exit 0 conflates *the suites passed* with *no suite ran*.
+
+## Related
+
+- [Colocated specs you can hand-harden](/docs/recipes/colocated-specs/) — the full stamp matrix, and how to harden a spec so `--force` leaves it alone.
+- [Route e2e specs](/docs/recipes/route-e2e/) — when the files at stake are `params.json`, `global-setup.ts` and the route specs `--force` rewrites.
+- [CI integration](/docs/recipes/ci-integration/) — wiring `--ci --changed` into a hook, where the exit code does the talking.
+- [Extending a generated suite](/docs/extending/) — every kept file in one list, and when you have outgrown regeneration.
