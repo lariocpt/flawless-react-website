@@ -6,24 +6,23 @@ description: flawless-unit-browser and flawless-findings — write-once fixtures
 
 ## The two skills that cover the output you edit
 
-A skill is a markdown file with a `name` and a `description`; Claude Code loads its full
-contents when a task matches that description. These two cover the half of a run that
-arrives with work attached — `flawless-unit-browser` for the specs `unit-browser` and
-`perf-harness` write, `flawless-findings` for the three tasks that write no code and only
-report. Both ship in `.claude/skills/` in the tool's own repository.
+A skill is a markdown file Claude Code loads on demand when a task matches its `description`.
+These two cover the half of a run that arrives with work attached: `flawless-unit-browser`
+for the specs `unit-browser` and `perf-harness` write, `flawless-findings` for the three
+tasks that only report.
 
 ## `flawless-unit-browser`
 
 **Loads when** a generated unit or browser spec is red, when you are filling TODOs after a
-run, or when a browser spec reports `unknown component`. Its description also names its
-contents — what the specs assert, the provider wrapper and its write-once fixtures, the
-mock allowlist, `test.skip` and `TODO(flawless)` markers, hand-hardening colocated specs,
-registering components in the browser host — so naming any of those pulls it in.
+run, or when a browser spec reports `unknown component` — the three situations its
+`description` names, alongside the topics it covers: the provider wrapper's write-once
+fixtures, the mock allowlist, `test.skip` and `TODO(flawless)`, colocated specs, the browser
+host.
 
 **What it knows.** `unit-browser` writes Vitest + Testing Library specs from static
-analysis; with `perf-harness` also selected you get Playwright browser specs that mount
-through the profiling host. Everything asserted was *derived*: the specs describe the render
-at the props they pass, never the last `return` in the body.
+analysis; with `perf-harness` too you get Playwright browser specs that mount through the
+profiling host. Everything asserted was *derived*: the specs describe the render at the
+props they pass, never the last `return` in the body.
 
 ```bash
 flawless-react "src/**/*.tsx" --tasks unit-browser,perf-harness --colocate --no-interactive
@@ -33,11 +32,10 @@ flawless-react "src/**/*.tsx" --tasks unit-browser,perf-harness --colocate --no-
 
 Unit specs mount inside `flawless/provider.tsx`, derived from the layout's JSX chain around
 `{children}`. That file regenerates; the values live in `flawless/provider.fixtures.ts`,
-**written once and never again — not even with `--force`**.
-
-Filling it is the highest-value hardening move. Replace the emitted empty cast in
-`initialState` (or whatever the layout passed) with a real seeded shape mirroring your app's
-seed data, so specs mount the way the app renders: authenticated, themed, populated.
+**written once and never again — not even with `--force`**. Filling it is the highest-value
+hardening move: replace the emitted empty cast in `initialState` with a real seeded shape
+mirroring your app's seed data, so specs mount the way the app renders — authenticated,
+themed, populated.
 
 ```ts
 initialState: {
@@ -46,100 +44,82 @@ initialState: {
 } satisfies ComponentProps<typeof StoreProvider>["initialState"],
 ```
 
-Pin any timestamp; `Date.now()` in a fixture makes specs nondeterministic. And tighten the
-assertion as you fill: a mocked building named `"flawless-name"` must reach the DOM
-(`expect(screen.getByText("flawless-name")).toBeInTheDocument()`), or the spec passes
-rendering an empty state — the vacuous pass this tool exists to prevent.
+Pin any timestamp; `Date.now()` in a fixture makes specs nondeterministic. Tighten the
+assertion as you fill, too: a mocked building named `"flawless-name"` must reach the DOM
+(`expect(screen.getByText("flawless-name")).toBeInTheDocument()`), or the spec passes on an
+empty state — the vacuous pass this tool exists to prevent.
 
 ### The mock allowlist is closed
 
 Client specs mock only `next/navigation`, `next/headers`, `server-only`, `next/link`,
 `next/font/*`, and `"use server"` modules. Do not widen it: mocking a UI component replaces
 the element the interaction tests click. Never mock `cn` or `clsx` away entirely — classes
-vanish. One wart, fixed in **FR-027** but alive in older suites: a spec importing `cn` from
-a utils module may carry an async stub for a sync function,
-`vi.mock("@/lib/utils", () => ({ cn: vi.fn(async () => ({})) }))`. Regeneration emits the
-sync form; in place, use a sync join so classes stay legible.
-
-```ts
-vi.mock("@/lib/utils", () => ({
-  cn: vi.fn((...args: unknown[]) => args.filter(Boolean).join(" ")),
-}));
-```
+vanish. One wart survives in suites generated before **FR-027**: a `vi.mock` of the utils
+module stubbing `cn` as `vi.fn(async () => ({}))`, an async stub for a sync function.
+Regeneration emits the sync form; in place, swap it for `args.filter(Boolean).join(" ")`.
 
 ### Skips and TODOs are answers waiting, not defects
 
-A `test.skip` with a named reason is intended output. Never delete the assertion or
-hand-write one — give the component what the reason asks for (a `data-testid`, a fixture)
-or extend the generator. `TODO(flawless)` markers come in three kinds:
+A `test.skip` with a named reason is intended output — never delete the assertion or
+hand-write one. Give the component what the reason asks for (a `data-testid`, a fixture) or
+extend the generator. `TODO(flawless)` markers come in three kinds:
 
 - **"some return shapes could not be inferred."** The tool already tried the dep's own
   declaration — a `Promise<T>` annotation, or a single-fetch body joined to the OpenAPI
   example, which emit an `/* inferred from … */` fixture and no TODO. The marker means usage
   *and* declaration came up empty: a computed return, a generic, a dotted callee
-  (`db.query.findMany`), an unannotated factory (`getDb`), a `cache()`-wrapped export the
-  function mapper cannot unwrap, or a type hitting a construct zod inference bails on
-  (`.transform`, a union, a record, a date) — barrel-resolved workspace types work since
-  **B-8** and `z.infer` enums and objects since **B-9**, so a survivor left the supported
-  subset. Give the mocked data-dep a realistic resolved value; where every consumer of the
-  handle is itself mocked, an opaque `{}` *is* right — say so in a comment replacing the
-  TODO.
-- **"wrap renderTarget() in the matching Root."** The tool does this itself when the part's
-  own file exports the family (a Root-rendering sibling plus a Content sibling) and the
-  family is open-state, so it survives only for rootless files, cross-file families, or
-  value-driven ones (accordion, tabs). Mount the part inside its Root as call sites do —
-  `render(<AlertDialog><AlertDialogTrigger>Delete</AlertDialogTrigger></AlertDialog>)` —
-  then assert its content. Dialog-family parts need the content wrapper too
-  (`<Dialog open><DialogContent>…`), and portal content is read off `baseElement`.
-- **"server action stubbed — give it a realistic return value."** The tool does this itself
-  when the action returns a single literal, redirect and notFound exits discounted; the
-  marker survives only where inference bailed — computed returns, two distinct shapes, an
-  unresolved sibling export. Read the action, pick the shape the component consumes, write
-  it into the stub.
+  (`db.query.findMany`), an unannotated factory (`getDb`), a `cache()`-wrapped export, or a
+  type hitting a construct zod inference bails on (`.transform`, a union, a record, a date;
+  barrel-resolved workspace types work since **B-8**, `z.infer` enums and objects since
+  **B-9**). Give the mocked data-dep a realistic resolved value — unless every consumer of
+  the handle is itself mocked, where an opaque `{}` *is* the right fixture.
+- **"wrap renderTarget() in the matching Root."** Automatic when the part's own file exports
+  the family (a Root-rendering sibling plus a Content sibling) and the family is open-state;
+  it survives for rootless files, cross-file families, and value-driven ones (accordion,
+  tabs). Mount the part inside its Root as call sites do —
+  `render(<AlertDialog><AlertDialogTrigger>Delete</AlertDialogTrigger></AlertDialog>)` — then
+  assert its content. Dialog-family parts need the content wrapper too
+  (`<Dialog open><DialogContent>…`); portal content is read off `baseElement`.
+- **"server action stubbed — give it a realistic return value."** Automatic when the action
+  returns a single literal, redirect and notFound exits discounted; it survives for computed
+  returns, two distinct shapes, or an unresolved sibling export. Read the action, pick the
+  shape the component consumes, write it into the stub.
 
 ### The colocated stamp, and where hand-hardening is safe
 
-Colocated specs (`--colocate`, written as `<file>.flawless.test.tsx` beside the source) are
-kept on re-runs, and their first line is a provenance stamp —
+Colocated specs (`--colocate`, `<file>.flawless.test.tsx` beside the source) are kept on
+re-runs, and their first line is a provenance stamp —
 `// @flawless-generated sha256:<hex16> flawless-react@<version>`, hashing the rest of the
-file. `--force` rewrites a spec only while that stamp matches; hand-harden one and the
-mismatch protects it, kept and listed in the summary as hand-edited.
+file. `--force` rewrites a spec only while that stamp matches, so hand-hardening one protects
+it: kept, and listed in the summary as hand-edited. Deleting the stamp line demotes the file
+to pre-stamp rather than making it regenerable; deleting the whole file is how you hand a
+spec back. Specs inside the out dir are rewritten on any re-run — never hand-harden those.
 
-Leave the stamp line alone: deleting it does not make the file regenerable, it demotes it to
-pre-stamp. The body edit already marks the file as yours, and deleting the whole file is how
-you hand a spec back. Specs inside the out dir are rewritten on any re-run — never
-hand-harden those, colocate first.
-
-Run them with `bun run flawless:unit`; the emitted Vitest config selects both
-`src/**/*.flawless.test.*` and `flawless/unit/**`. A project script that is a bare
-`bun test` collects colocated specs under the wrong runner — scope it to `bun test tests`.
+Run them with `bun run flawless:unit`, whose Vitest config selects both
+`src/**/*.flawless.test.*` and `flawless/unit/**`. A bare `bun test` script collects
+colocated specs under the wrong runner — scope it to `bun test tests`.
 
 ### The browser host registry, and `unknown component`
 
-Browser specs mount through `flawless/host/` and exist only when both `unit-browser` and
-`perf-harness` ran. The mount tables `REGISTRY`, `FN_PROPS` and `WRAP_IN` live in
-`host/registry.ts`, which **regenerates on every run** — a newly analysed component arrives
-by a plain no-force re-run, nothing to hand-edit. Write-once `host/main.tsx` is only the
-wrapper (polyfills, provider, MSW, profiling machinery); components you register by hand go
-in its spreads, which survive regeneration:
-`const ALL = { ...REGISTRY, MyComponent: MyComponent as unknown as Component }` — the cast
-is required, since a strict tsconfig rejects a props-typed component in a
-`Record<string, Component>` — plus `ALL_FN_PROPS` and `ALL_WRAP_IN` for function-prop stubs
-or a wrapper chain.
+Browser specs mount through `flawless/host/`, and exist only when `unit-browser` and
+`perf-harness` both ran. The mount tables `REGISTRY`, `FN_PROPS` and `WRAP_IN` live in
+`host/registry.ts`, which **regenerates on every run**, so a newly analysed component arrives
+by a plain no-force re-run. Write-once `host/main.tsx` is only the wrapper; components you
+add by hand go in its `ALL` / `ALL_FN_PROPS` / `ALL_WRAP_IN` spreads, which survive
+regeneration.
 
-So `unknown component: <Name>` reads two ways. On a current suite the re-run has not
-happened: re-run the tool. On a pre-split suite — a `main.tsx` with no `from "./registry"`
-import — take the one-time migration the run's warning names: delete `host/main.tsx` and
-re-run, regenerating the provider wiring from `--provider`, or port the hand wiring into a
-wrapper importing `./registry`. No flag rewrites `main.tsx`; write-once is absolute,
-`--force` included. This was findings-ledger **FR-016**, fixed by the split.
+So `unknown component: <Name>` means the re-run has not happened yet — unless the suite is
+pre-split, its `main.tsx` carrying no `from "./registry"` import, which owes the one-time
+migration the warning names: delete `host/main.tsx` and re-run, regenerating provider wiring
+from `--provider`. No flag rewrites `main.tsx`; write-once is absolute, `--force` included
+(findings-ledger **FR-016**).
 
 ## `flawless-findings`
 
-**Loads when** you are triaging a findings list after a run, deciding fix-versus-suppress,
-or a suppression shows up as "unused". It advertises perf-static, a11y and react-rules
-findings, REPORT.md's accounting, the `reports/` JSON and sidecars, and the suppression
-rules that keep your project's Biome and the tool's sweeps agreeing.
+**Loads when** you are triaging a findings list after a run, deciding fix-versus-suppress, or
+a suppression shows up as "unused" — and it advertises REPORT.md's accounting, the `reports/`
+JSON and sidecars, and the suppression rules that keep your Biome and the tool's sweeps
+agreeing.
 
 **What it knows.** Three tasks only report: `perf-static` runs the tool's own rules, `a11y`
 and `react-rules` are Biome sweeps with narrowed rule sets. Findings print as
@@ -149,28 +129,26 @@ per-component reports from earlier runs linger. Trust the task summary counts, n
 over `reports/`.
 
 `REPORT.md` regenerates every run and describes the **last run, not the suite on disk**. Its
-components table accounts for every component in exactly one render-mode row (client, rsc,
-compound-part, document-root, null) split by mountable or not; "Not covered, and why" names
-each gap; the task table records what that run wrote, with a Status column for where
-`perf-harness` sat in the lifecycle — generated, refreshed or kept. A file count is not
-coverage.
+components table puts every component in exactly one render-mode row (client, rsc,
+compound-part, document-root, null), split by mountable or not; "Not covered, and why" names
+each gap; the task table's Status column says where `perf-harness` sat in the lifecycle,
+generated / refreshed / kept. A file count is not coverage.
 
 ### Triage in order, and stop before the advisory tail
 
 1. **`perf/set-state-in-render`** (error) — always real, fix first.
 2. **Hook dependencies.** `hook-extraneous-dependency` usually means the dep is never read:
    remove it, or for a scroll-on-change effect make it real by reading it
-   (`if (messages.length === 0) return;`). For `hook-missing-dependency`, wrap the function
-   in `useCallback` and add it rather than suppressing.
-3. **`perf/unstable-child-prop`** — a real win when the receiving child is memoised or heavy
-   (a third-party `<Sonner>`, a memo'd list). Hoist static objects and arrays to module
-   scope; leave inline arrows to plain DOM elements alone.
-4. **`noArrayIndexKey`** — real for editable lists: add a client-side id at creation, key on
-   it, strip it at submit. A reasoned suppression for server-static lists, or where the
-   index *is* the domain identity.
-5. **`perf/unresolved-prop`, `no-memoisation-with-children`, `missing-memo-leaf`** —
-   advisory scale. Fix where profiling agrees; chasing them to zero is churn, not
-   performance.
+   (`if (messages.length === 0) return;`). For `hook-missing-dependency`, wrap the function in
+   `useCallback` and add it rather than suppressing.
+3. **`perf/unstable-child-prop`** — a real win when the child is memoised or heavy (a
+   third-party `<Sonner>`, a memo'd list): hoist static objects and arrays to module scope,
+   and leave inline arrows to plain DOM elements alone.
+4. **`noArrayIndexKey`** — real for editable lists (a client-side id at creation, keyed on,
+   stripped at submit); a reasoned suppression for server-static lists, or where the index
+   *is* the identity.
+5. **`perf/unresolved-prop`, `no-memoisation-with-children`, `missing-memo-leaf`** — advisory.
+   Fix where profiling agrees; chasing them to zero is churn, not performance.
 
 ### A suppression is an answer — and it can be "unused" on the other side
 
@@ -180,42 +158,37 @@ Every suppression carries its reason, and none exists to make a batch green.
 // biome-ignore lint/a11y/noLabelWithoutControl: generic wrapper — every call site associates the control
 ```
 
-Placement matters, because Biome attaches the comment to the next line's diagnostic: for a
-multi-line JSX element whose finding anchors on the `key=` attribute, it goes inside the tag
-directly above that attribute, not above the element.
+Biome attaches the comment to the next line's diagnostic: for a multi-line JSX element whose
+finding anchors on the `key=` attribute, it goes inside the tag directly above that
+attribute, not above the element.
 
-Then the **cross-config trap**. The tool's sweeps run a scratch config holding only their own
-rules; your project's Biome has its own set, and a rule enabled in only one of the two makes
-the suppression "unused" in the other. The tool's side is handled — the sweeps ignore
+The **cross-config trap**: the sweeps run a scratch config holding only their own rules, your
+project's Biome has its own set, and a rule enabled in only one of the two makes the
+suppression "unused" in the other. The tool's side is handled — the sweeps ignore
 `suppressions/unused`. Yours is not: if the project config does not enable the rule you are
-suppressing, your own `biome ci` flags the comment. Enable that rule in the project config —
-usually free, since the suppressed site was the only finding — and both runs agree the
-suppression is legitimate.
+suppressing, your own `biome ci` flags the comment. Enable it there — usually free, since the
+suppressed site was the only finding — and both runs agree.
 
-Finally, track the ledger across runs (the skill's worked example: perf-static 246 / a11y 1
-/ react-rules 10) and explain every delta. A burn-down commit should be able to say
-"a11y 1&#8594;0, react-rules 10&#8594;0" with one cause per line. New findings after a
-regeneration are usually the analyser seeing new components, not regressions — check the
-components count first.
+Track the ledger across runs (the skill's example: perf-static 246 / a11y 1 / react-rules 10)
+and explain every delta; a burn-down commit should say "a11y 1&#8594;0, react-rules
+10&#8594;0" with one cause per line. New findings after a regeneration are usually the
+analyser seeing new components, not regressions — check the components count first.
 
 ## Installing them
 
-Plain directories, no dependencies. Copy them out of the tool's repository into project
-scope (checked in, shared with the repo) or user scope (every project on this machine);
-project scope wins when both exist.
+Plain directories. Copy them out of the tool's repository into the project's
+`.claude/skills/` (checked in, shared with the repo) or the user-level `~/.claude/skills/`
+(every project on this machine); project scope wins when both exist.
 
 ```bash
-mkdir -p .claude/skills
 cp -R /path/to/flawless-react/.claude/skills/flawless-{unit-browser,findings} .claude/skills/
-cp -R /path/to/flawless-react/.claude/skills/flawless-{unit-browser,findings} ~/.claude/skills/
 ```
 
 **A stale copy is worse than none.** The repository copy is the source of truth and moves
-when the tool moves — the `cn` async stub is fixed as of FR-027, the registry split as of
-FR-016, and two of the three `TODO(flawless)` kinds are now filled in automatically in cases
-that once emitted a marker. A copy predating those loads with exactly the same confidence as
-a current one, and is wrong in the situation you reached for it. Re-copy after every upgrade,
-and if you keep both scopes, diff them.
+when the tool moves: FR-027 retired the async `cn` stub, FR-016 split the registry, and two
+of the three `TODO(flawless)` kinds are now answered automatically. A copy predating those
+loads with the same confidence as a current one and is wrong exactly where you reached for
+it. Re-copy after every upgrade, and if you keep both scopes, diff them.
 
 ## Related
 

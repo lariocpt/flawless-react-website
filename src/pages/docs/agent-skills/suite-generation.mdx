@@ -7,11 +7,9 @@ description: The flawless-react and flawless-regen skills in full — what each 
 Two of the six skills in `.claude/skills/` cover the loop of writing a suite and running the tool
 over it again. `flawless-react` is the umbrella — what an agent loads when asked to put tests on a
 component with no other context. `flawless-regen` is what it should load before touching a suite
-someone has already adopted.
-
-Both are plain markdown with two frontmatter keys, `name` and `description`. The description is
-the trigger: Claude Code reads it, and if the task matches, the whole body goes into context.
-Nothing executes.
+someone has already adopted. Both are plain markdown with two frontmatter keys, `name` and
+`description`; the description is the trigger, and if the task matches, the whole body goes into
+context.
 
 ## `flawless-react`
 
@@ -19,19 +17,19 @@ Nothing executes.
 
 Its description covers generating and maintaining React/Next.js test suites, and names three
 situations: **adding component, e2e or load tests to a React codebase**; **a generated flawless
-suite that is red**; and **"scaffold tests for this component" work**. It lists its own contents —
-task selection, Next.js mode, provider wrappers, MSW fixtures from an OpenAPI spec, colocated
-specs, route e2e, crust load pipes, the programmatic API, reading findings — then names the five
-sibling skills, so an agent that lands here on the wrong question is redirected.
+suite that is red**; and **"scaffold tests for this component" work**. It advertises its contents
+— task selection, Next.js mode, provider wrappers, MSW fixtures from an OpenAPI spec, colocated
+specs, route e2e, crust load pipes, the programmatic API, findings — then names the five sibling
+skills, so an agent that lands here on the wrong question is redirected.
 
 ### What it knows
 
 It opens with the premise the rest depends on: point the tool at a `.tsx` file or glob and it
 reads the component's props, state, hooks, children and fetches, then writes a runnable suite —
-**and most of what it emits is regenerated.** It enumerates the files the tool cannot rebuild and
-therefore protects: `budgets.json`, `host/main.tsx`, `provider.fixtures.ts`, `e2e/global-setup.ts`,
-`e2e/params.json`, `mocks/handlers.ts`, and colocated specs. Its rule for a hand-hardened
-component spec is `--colocate`; specs written inside the out dir are rewritten.
+**and most of what it emits is regenerated.** Only what the tool cannot rebuild is protected:
+`budgets.json`, `host/main.tsx`, `provider.fixtures.ts`, `e2e/global-setup.ts`, `e2e/params.json`,
+`mocks/handlers.ts`, colocated specs. Its rule for a hand-hardened component spec is `--colocate`;
+specs written inside the out dir are rewritten.
 
 It carries the seven-task table with each output and prerequisite: `unit-browser` (Vitest +
 Testing Library, plus Playwright browser specs when `perf-harness` is also selected),
@@ -52,9 +50,8 @@ It then lists exactly what a generated unit spec asserts: the rendered root tag 
 could pin it down; `children` and `className` passthrough **only when the value provably reaches
 the DOM**, because accepting a prop is not rendering it; for a cva or `tv` component, that every
 option of every key renders a *distinct* class list and never a specific Tailwind token, because
-`cn()` is usually tailwind-merge; one test per detected interaction, with negative assertions on
-every other handler prop; success / loading / error / empty cases per `useEffect` fetch. The rest
-is spec placement, the `perf-static` rules, `runFlawless`, and limits.
+`cn()` is usually tailwind-merge; one test per interaction, with negative assertions on every other
+handler prop; success / loading / error / empty cases per `useEffect` fetch.
 
 ```bash
 # one component, unit specs only
@@ -69,20 +66,20 @@ flawless-react "src/app/dashboard/page.tsx" --nextjs . --api openapi.json --swag
 **A `test.skip` with a reason is the intended output.** When nothing is derivable the generator
 emits a skip naming which preconditions failed, and the skill is explicit: do not "fix" it by
 deleting the assertion or hand-writing one. Fix the generator, or give the component the
-`data-testid` or fixture the skip asks for. Same for `TODO(flawless)` markers — a marker instead
-of a silently passing assertion. The loop is run the suite, fill the TODOs, rerun.
+`data-testid` or fixture the skip asks for. Same for `TODO(flawless)` markers — a marker rather
+than a silently passing assertion. Run the suite, fill the TODOs, rerun.
 
 **The mock allowlist is short on purpose.** Client specs mock `next/navigation`, `next/headers`,
 `server-only`, `next/link`, `next/font/*` and any `"use server"` module — nothing else. A broader
-mock breaks the suite in a way that still looks green: mocking a `cn` util strips every className
-off the markup, and mocking a UI component replaces the element the interaction tests click.
+mock breaks the suite while it still looks green: mocking a `cn` util strips every className off
+the markup, and mocking a UI component replaces the element the interaction tests click.
 
 **Load numbers are vacuous by default.** `LOAD_BASE` must point at a production build, not
 `next dev`, because the dev server compiles routes on demand and the first request to each measures
 the compiler. And `LOAD_AUTH` is a header line — for a cookie-session app that is
 `cookie: session=&lt;value&gt;`, not a Bearer token. The failure you will not notice: an
 unauthenticated request to a dashboard route redirects to the login page, which answers 200, so
-every pipe passes while measuring the login screen.
+every pipe passes while measuring the login form.
 
 ## `flawless-regen`
 
@@ -92,7 +89,7 @@ Its description scopes it to regenerating a suite safely and names the lifecycle
 — generated, refreshed, kept — plus `--force`'s merge semantics, the colocated-spec provenance
 stamp, `--changed`'s affected-test narrowing, and proving a run happened from the result JSON and
 REPORT.md rather than stdout. Three triggers: **before any regeneration over an adopted suite**,
-**after upgrading the tool**, and **when a `--changed` run appears to have done nothing**.
+**after upgrading the tool**, **when a `--changed` run appears to have done nothing**.
 
 ### What it knows
 
@@ -130,9 +127,9 @@ flawless-react "src/**/*.tsx" --nextjs . --tasks perf-harness,unit-browser,perf-
 
 **`--force` is not "refresh harder".** A plain re-run already rewrites every derived file. Force
 adds exactly one thing: the rewrite of untouched colocated specs, e2e route specs and the provider
-wrapper. The skill's "Never" list says to decide whether you want that before asking, and never to
-force an adopted suite with uncommitted work — the stamp protects hand-edited colocated specs, but
-e2e route specs and the provider wrapper have no such guard.
+wrapper. Its "Never" list says to decide whether you want that before asking, and never to force an
+adopted suite with uncommitted work — the stamp protects hand-edited colocated specs, but e2e route
+specs and the provider wrapper have no such guard.
 
 **`--changed` needs an explicit `--tasks`.** A bare `--no-interactive` defaults to `perf-harness`
 alone, and a harness-only selection has no unit or e2e suites for the affected run to run — which
@@ -141,31 +138,27 @@ is exactly why a `--changed` run can look like it did nothing.
 **Never take stdout as evidence.** Write evidence to files and check the disk: call `runFlawless`
 or `runCore` and write the exit code, out dir and results to a result file; REPORT.md is rewritten
 every run, so a missing REPORT.md diff means the run did not happen or ran somewhere else; and
-`git status --porcelain` must match the expected touch surface. In Next.js mode the default out dir
-resolves against the target root, so a run from the wrong cwd rewrites another project's scripts
-and reports success.
+`git status --porcelain` must match the expected touch surface for the run kind. In Next.js mode
+the default out dir resolves against the target root, so a run from the wrong cwd rewrites another
+project's scripts and reports success.
 
 ## Installing them
 
-Both are directories. Copy them out of the tool's repository into either scope:
+Both are directories. Copy them out of the tool's repository into project scope (checked in,
+shared with the repo) or user scope (every project on this machine); project scope wins when both
+exist.
 
 ```bash
-# Project scope — checked in, shared with everyone on the repo
 mkdir -p .claude/skills
 cp -R /path/to/flawless-react/.claude/skills/flawless-{react,regen} .claude/skills/
-
-# User scope — available in every project on this machine
 cp -R /path/to/flawless-react/.claude/skills/flawless-{react,regen} ~/.claude/skills/
 ```
 
-Project scope wins when a skill of the same name exists in both.
-
 > **A stale copy is worse than none.** The copy in the tool's repository is the source of truth,
-> and it moves when the tool moves. `flawless-regen` in particular describes a contract that
-> changed — the old "harness already exists" refusal is gone, the provenance stamp is new. An
-> outdated copy is loaded with exactly the same confidence as a current one, and it will be wrong
-> in the situation you reached for it. Re-copy after every upgrade; if you keep both scopes, diff
-> them.
+> and it moves when the tool moves — `flawless-regen` alone describes a contract that changed
+> twice. An outdated copy is loaded with exactly the same confidence as a current one, and it will
+> be wrong in the situation you reached for it. Re-copy after every upgrade; if you keep both
+> scopes, diff them.
 
 ## Related
 

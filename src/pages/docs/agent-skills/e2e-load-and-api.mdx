@@ -5,9 +5,8 @@ description: The flawless-e2e-load and flawless-api skills — the global-setup 
 ---
 
 Two of the six skills in `.claude/skills/` cover what happens outside the generator: the
-suites that hit your real app, and the surface you drive the tool from when nobody is
-reading a terminal. They share a failure mode — both produce a number that looks like an
-answer and can easily be about nothing.
+suites that hit your real app, and the surface you drive the tool from when nobody reads a
+terminal. Both guard one failure — a number that looks like an answer and is about nothing.
 
 ## flawless-e2e-load
 
@@ -20,6 +19,14 @@ numbers mean anything. Its premise: both suites run against the **real app** —
 MSW cannot intercept a server component's database access, load because measuring anything
 else is fiction. That realism is where every vacuous pass hides.
 
+Both suites are Next.js-only, and emitted together so they share `params.json`:
+
+```bash
+flawless-react "src/**/*.tsx" --nextjs . --tasks e2e,load --no-interactive
+```
+
+After that, the e2e prerequisites are ordered:
+
 ```bash
 bun run db:up && bun run db:migrate && bun run db:seed   # Postgres + seed users
 bun run dev:web                                          # app on :3001
@@ -29,38 +36,25 @@ bun run flawless:e2e
 ### 1. The login guard is the test, not an obstacle
 
 `flawless/e2e/global-setup.ts` is where you sign in as the seeded user and persist
-`storageState` to `e2e/.auth.json`. The tool emits a **stub** that writes an empty state —
-so the config's `storageState` always resolves — plus a worked example. It is never
-overwritten, `--force` included: it is yours once you touch it.
+`storageState` to `e2e/.auth.json`. The tool emits a **stub** writing an empty state — so
+the config's `storageState` always resolves — plus a worked example. It is never
+overwritten, `--force` included: yours once you touch it. Your version should **throw if
+login lands back on `/login`**. That throw is an anti-vacuous guard, not a bug; when it fires
+the seed drifted — wrong user, wrong password, unseeded DB — so you fix the seed.
 
-Your filled-in version should **throw if login lands back on `/login`**. That throw is an
-anti-vacuous guard, not a bug. When it fires the seed drifted — wrong user, wrong password,
-unseeded DB — so you fix the seed, never the guard.
-
-You are not relying on remembering that. Every emitted route spec asserts it landed on the
-route it asked for, in both the render test and the interaction test, so an unauthenticated
-suite fails naming its escapes instead of quietly testing the login screen. Until the hook
-is filled, REPORT.md's hand-work table says so; the check is byte-identity against the stub,
-so it clears the moment you edit the file.
-
-The skill bounds that claim, because an overclaim here is the same bug in a different hat.
-The assertion catches redirects that **change the URL** and have landed by the time the spec
-looks — a server 3xx, a client-side navigation completing before `networkidle` settles. It
-does not catch a middleware *rewrite* serving the login page at the requested path, a 401
-body, or a redirect firing later than the spec waited.
+Every emitted route spec then asserts it landed on the route it asked for, in both the
+render test and the interaction test, so an unauthenticated suite fails naming its escapes
+instead of quietly testing the login screen. Until the hook is filled REPORT.md's hand-work
+table says so, by byte-identity against the stub. The skill bounds the claim too: the
+assertion catches redirects that **change the URL**, not a middleware *rewrite* serving the
+login page at the requested path, a 401 body, or a late redirect.
 
 A route that redirects **on purpose** — a default sub-tab, a locale landing — would
 otherwise fail forever. Record the destination in `flawless/e2e/params.json` under
-`landing`, keyed by route template, not in the spec: `--force` regenerates specs and leaves
-`params.json` alone.
-
-```json
-{ "landing": { "/dash": "/dash/overview" } }
-```
-
-Dynamic segments come from that same write-once, merge-kept file — `defaults` filled with
-seeded UUIDs, per-route overrides optional. A blank id does not fail; it produces a URL with
-an empty segment that hits the 404 handler.
+`landing`, keyed by route template (`"/dash"` to `"/dash/overview"`), not in the spec:
+`--force` regenerates specs and leaves `params.json` alone. Dynamic segments come from that
+same write-once file, and a blank id does not fail — it makes a URL with an empty segment
+that hits the 404 handler.
 
 ### 2. Load needs a production build and proven auth
 
@@ -72,45 +66,38 @@ export LOAD_AUTH="cookie: session=$SESSION"
 bun run flawless:load    # routes.setup.ts seeds the ids and proves the auth
 ```
 
-`next dev` compiles routes on demand, so against a dev server the first request to each
-route measures the compiler. Check the banner says `next start`; if the app's `start` script
-has no port flag, `:3000` may collide, and `PORT=3001` wins. `LOAD_AUTH` is a **header
-line** — for cookie sessions, `cookie: session=` plus the value from `.auth.json`, not a
-Bearer token.
+`next dev` compiles routes on demand, so the first request to each route measures the
+compiler — check the banner says `next start`, and if the app's `start` script has no port
+flag `:3000` may collide, so `PORT=3001` wins. `LOAD_AUTH` is a **header line**: `cookie:
+session=` plus the value from `.auth.json`, not a Bearer token.
 
 You no longer source `env.sh`. `flawless/load/routes.setup.ts` runs first (crust awaits a
 pipes file's sibling setup module), seeds every `LOAD_<PARAM>` from `params.json`, and
-throws if it seeded none — `env.sh` needed `jq` and, without it, exported nothing *silently*
+throws if it seeded none — `env.sh` needed `jq` and without it exported nothing *silently*
 while two thirds of the pipes measured the 404 handler.
 
-That same module probes every static route and throws if one lands elsewhere; the check is
-enforced, not advised. An expired cookie redirects to a login page that answers 200, so
-`expect 200` passes and the whole file reports healthy percentiles for a login form. The
-skill carries the measured case: 20/20 status 200, p50 19.7 ms, exit 0, every request served
-`/login`. The module is **write-once**, so a check that knows your app survives.
+That module also probes every static route and throws if one lands elsewhere; the check is
+enforced, not advised. An expired cookie redirects to a login page answering 200, so
+`expect 200` passes and the file reports healthy percentiles for a login form — measured:
+20/20 status 200, p50 19.7 ms, exit 0, every request served `/login`. It is **write-once**,
+so a check that knows your app survives.
 
 ### 3. A green pipe run means nothing until you have probed it
 
-The e2e specs carry their own landing assertion; a load pipe has nothing of the kind, and
-`crust` will happily report a fast, green p95 for 500 redirects to a login page. Run these
-**before** the pipes:
+A load pipe has no landing assertion of its own, and `crust` will report a fast, green p95
+for 500 redirects to a login page. Run these **before** the pipes:
 
 ```bash
 echo "$LOAD_ID"                                   # must be non-empty
 curl -s -H "$LOAD_AUTH" "$LOAD_BASE/dashboard/buildings/$LOAD_ID" | grep -ci "login"
 ```
 
-The curl must return real page HTML — tens of KB — and the grep must find no login form.
-Afterwards the trap wears a second face: a p95 that is suspiciously fast is measuring the
-404 or the redirect. Real SSR routes on a dev box sit in the 10–15 ms p95 range, not 2 ms.
-Compare against the committed baselines — each pipe gates p95 against baseline-&lt;name&gt;.json,
-a missing baseline passes **by design** because the first run arms it, and you arm one by
-copying a good last-&lt;name&gt;.json. Refresh only when you can explain the shift in the commit
-body, and never refresh a batch to make a red run green.
-
-`--force` **merges** `routes.pipes`: edited rates, hand-added flows and pipes you commented
-out yourself all survive, and pipes with unfilled ids arrive commented-out above a line
-naming the `params.json` key to fill.
+The curl must return real page HTML — tens of KB — and the grep no login form. Afterwards
+the trap wears a second face: a p95 that is suspiciously fast is measuring the 404 or the
+redirect. Real SSR routes on a dev box sit at 10–15 ms p95, not 2 ms. Each pipe gates p95
+against baseline-&lt;name&gt;.json; a missing baseline passes **by design** because the first run
+arms it, and you arm one by copying a good last-&lt;name&gt;.json. Refresh only when you can
+explain the shift in the commit body, never a batch to turn a red run green.
 
 ## flawless-api
 
@@ -118,8 +105,7 @@ naming the `params.json` key to fill.
 report over the analysis, or embedding the tool in another workflow.
 
 **Knows** `runFlawless`/`runCore` options and results, the exit-code and error contracts,
-the `analyse()`/`ComponentTree` surface for custom reporting, the tasks registry, and the
-`--ci` JSON contract.
+the `analyse()`/`ComponentTree` surface, the tasks registry, and the `--ci` JSON contract.
 
 ```ts
 import { runFlawless } from "flawless-react";
@@ -134,84 +120,74 @@ const { exitCode, outDir, results, trees } = await runFlawless({
 
 `runFlawless` is the friendly wrapper (`entry`/`tasks`/`out`); `runCore` from `core.ts` is
 the same engine with CLI-shaped names (`pattern`/`taskIds`/`outDir`) plus `changed` and
-`heaps`. Everything else — `runTests`, `force`, `report`, `log`, `quiet` — is on **both**.
+`heaps`. `runTests`, `force`, `report`, `log` and `quiet` are on **both**.
 
 ### 1. Exit 0 does not mean the suites passed
 
 Read `testRun`, under one invariant: `mode: "none"` if and only if zero suites executed, so
 `green` never appears on a phase that ran nothing.
 
-- `{ mode: "generated" | "affected", green }` — suites really ran, and `green` is what
-  folded into `exitCode`.
+- `{ mode: "generated" | "affected", green }` — suites really ran; `green` is what folded
+  into `exitCode`.
 - `{ mode: "none", reason }` — nothing ran, and `reason` names which of three causes: no
   selected task generates a suite `--run-tests` executes (only `perf-harness`,
   `unit-browser` and `e2e` do — `load` emits pipes you run with `bun run flawless:load`),
-  nothing was affected, or the selected tasks plan no run for the work that was.
-- **absent** — the run never reached the test-run phase. That is not "no run was asked
-  for": a request blocked by a failed task is also absent, exits 1, and is explained by
-  `results`.
+  nothing was affected, or the tasks plan no run for the work that was.
+- **absent** — the run never reached the test-run phase. Not "no run was asked for": a
+  request blocked by a failed task is also absent, exits 1, and is explained by `results`.
 
 ### 2. stdout is the contract; stderr is the account
 
 `--ci` is `--no-interactive --json`: stdout is exactly one JSON blob,
 `{ exitCode, outDir, results, keptScripts, testRun, errors? }`, and nothing else. Parse the
-whole of stdout, never a line of it — and never scrape the human console output instead.
+whole of stdout, never a line of it, and never scrape the human console output instead.
 
-**stderr still carries diagnostics**: skipped files, an unparseable spec, script collisions,
-a failed Next.js emit. Those lines are the only account of work the run quietly dropped, so
-capture them. Two flags decide what speaks. **`log`** asks may this run write to stdout —
-off by default programmatically, gating the progress narration *and* the per-file findings
-listing, and `--json` turns it off because stdout must parse whole. **`quiet`** asks whether
-`runCore`'s own stderr diagnostics are suppressed — off by default, so the warnings do speak
-even when `log` is off. One flag for both is how `--ci` became the mode that lost its
-warnings. `quiet` silences `runCore`'s `warn()` lines, not stderr as a whole; redirect fd 2
-if you need silence.
+**stderr still carries diagnostics** — skipped files, an unparseable spec, script collisions,
+a failed Next.js emit — the only account of work the run quietly dropped. Two flags decide
+what speaks: **`log`** (may this run write to stdout? off by default programmatically,
+gating the progress narration *and* the per-file findings listing) and **`quiet`** (suppress
+`runCore`'s own stderr diagnostics? off by default, so warnings speak even when `log` is
+off). One flag for both is how `--ci` became the mode that lost its warnings.
 
 ### 3. Exit 1 has two causes, and neither is a crash
 
 The API **never calls `process.exit`**. Bad input throws `UsageError`, exported from the
-package and from `types.ts`; everything else is a plain error. Exit `2` is a usage error,
-`0` is clean, and `1` means either a task failed — `results[].error` names it — or a
+package and from `types.ts`; everything else is a plain error. Exit `2` is a usage error and
+`0` is clean; `1` means either a task failed — `results[].error` names it — or a
 `--run-tests`/`--changed` suite run went red, in which case every `results[]` entry is
-`ok: true` and the outcome lives in `exitCode` and `CoreResult.testRun`, not in any error
-field. `errors` is the third shape: failures belonging to no task, which `results` cannot
-show, such as a Next.js emit that threw and set `exitCode: 1` with every task `ok: true`.
-It is omitted on a clean run, so branch on its presence.
+`ok: true` and the outcome lives in `exitCode` and `CoreResult.testRun`. `errors` is the
+third shape: failures belonging to no task, such as a Next.js emit that threw and set
+`exitCode: 1` with every task `ok: true`. Omitted on a clean run, so branch on its presence.
 
-`results` is `TaskResult[]`: `{ id, ok, outputs, findings, summary, error?, status? }`.
+`results` is `TaskResult[]`: `{ id, ok, outputs, findings, summary, error?, status? }`, and
 `status` — `"generated"`, `"refreshed"`, `"kept"`, perf-harness only for now — places the
-run in the suite lifecycle. A re-run over an existing suite is not a failure: it is
-`ok: true` plus `"refreshed"`, and exits 0. A `--changed` run keeps the harness (`ok: true`,
-`"kept"`, outputs empty).
+run in the suite lifecycle. A re-run over an existing suite is not a failure: `ok: true`
+plus `"refreshed"`, exit 0. A `--changed` run keeps the harness (`"kept"`, outputs empty).
 
-One more trap: cwd matters in Next.js mode. `nextjs: "."` resolves against the process cwd,
-and the run merges `flawless:*` scripts into **that** root's `package.json` — pin it with
-`process.chdir` or absolute paths. The merge never clobbers a user-customised `flawless:*`
-value; kept keys surface in `CoreResult.keptScripts`, the `--ci` blob and REPORT.md.
+Cwd matters too: `nextjs: "."` resolves against the process cwd and the run merges
+`flawless:*` scripts into **that** root's `package.json`, so pin it with `process.chdir` or
+absolute paths. The merge never clobbers a user-customised `flawless:*` value; kept keys
+surface in `CoreResult.keptScripts`, the `--ci` blob and REPORT.md.
 
 ### The analysis surface
 
 ```ts
-import { analyse } from "flawless-react";
-
 const tree = await analyse({ entry: "src/Nav.tsx", depth: 3, includeChildren: true });
-// tree: ComponentTree — entry: ComponentInfo (propsShape, variants, hooks,
-// interactions, dataDeps, unresolvedProps/unresolvedTypes), children: ComponentTree[]
+// ComponentTree — entry: ComponentInfo (propsShape, variants, hooks, interactions,
+// dataDeps, unresolvedProps/unresolvedTypes), children: ComponentTree[]
 ```
 
 `analyse()` is pure static analysis — no files written — and the right base for custom
-reporting. The honesty contract worth preserving in anything you build on it: an extraction
-that fails is **recorded** — `unresolvedProps`, `unresolvedTypes`, `uncertain` on data deps
-— never silently empty. Treat an empty shape with empty unresolved records as a bug to
-report, not a component with no props. Tasks are a registry, `findTask(id).run(ctx)`
-returning a `TaskResult`; a custom task is a new entry in `src/tasks/index.ts` honouring one
-rule — write findings and outputs, throw only for genuine failure, make `ok` mean what it
-says.
+reporting. Preserve its honesty contract: an extraction that fails is **recorded**
+(`unresolvedProps`, `unresolvedTypes`, `uncertain` on data deps), never silently empty, so
+an empty shape with empty unresolved records is a bug to report, not a component with no
+props. Tasks are a registry — `findTask(id).run(ctx)` returning a `TaskResult` — so a custom
+task is one more entry in `src/tasks/index.ts`.
 
 ## Installing them
 
-Both are plain directories under `.claude/skills/` in the tool's repository. Copy them into
-project scope or user scope; project scope wins when both exist.
+Both are plain directories. Copy them out of the tool's repository into project or user
+scope; project scope wins when both exist.
 
 ```bash
 mkdir -p .claude/skills
@@ -219,14 +195,13 @@ cp -R /path/to/flawless-react/.claude/skills/flawless-e2e-load .claude/skills/
 cp -R /path/to/flawless-react/.claude/skills/flawless-api ~/.claude/skills/
 ```
 
-**A stale copy is worse than none.** The repository copy is the source of truth and it moves
-when the tool moves — `flawless-e2e-load` already documents `env.sh` as legacy, and a copy
-predating `routes.setup.ts` would send an agent to source a file that exports nothing. A
-stale skill loads with the same confidence as a current one, and it is wrong in exactly the
-situation you reached for it. Re-copy after upgrading; if you keep both scopes, diff them.
+**A stale copy is worse than none.** The repository copy is the source of truth and moves
+when the tool moves: `flawless-e2e-load` already calls `env.sh` legacy, and a copy predating
+`routes.setup.ts` would send an agent to source a file that exports nothing. A stale skill
+loads with the same confidence as a current one. Re-copy after upgrading.
 
 ## Related
 
 - [Agent skills](/docs/agent-skills/) — the other four, and why the tool ships them
-- [Load pipes with crust](/docs/recipes/crust-load-pipes/) — the same probes, baselines and merge semantics, for a human reader
-- [Wire it into CI](/docs/recipes/ci-integration/) — the `--ci` contract in practice, and why a green exit code needs `testRun`
+- [Load pipes with crust](/docs/recipes/crust-load-pipes/) — the same probes and baselines, for a human reader
+- [Wire it into CI](/docs/recipes/ci-integration/) — the `--ci` contract in practice
