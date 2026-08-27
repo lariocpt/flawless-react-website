@@ -1,0 +1,98 @@
+---
+layout: ../../layouts/DocsLayout.astro
+title: Expo / React Native mode
+description: How --expo reads an Expo project, which tasks run and which refuse by name, and why the native unit plane uses jest-expo and renderRouter rather than the DOM suite
+---
+
+## What `--expo` does
+
+```bash
+cd my-expo-app
+bunx flawless-react --expo
+```
+
+It reads the project off disk — the Expo SDK major, the expo-router `app/` root, whether the React Compiler is on, whether NativeWind is wired through babel, and the port `expo start --web` serves on — then defaults the entry glob to the router root and writes to `<expoRoot>/flawless/`.
+
+Mutually exclusive with `--nextjs`. A project is one or the other.
+
+## React Native is a second element vocabulary
+
+Not a Next.js variant. Four facts drive almost everything below:
+
+- **`<View>` is capitalised and imported.** The rule that decided what a host element was — lowercase — is wrong here, so a tag is a host element *iff the file imports that name from a known React Native specifier*. Never guessed from the name.
+- **There are no implicit ARIA roles.** `getByRole("button")` matches nothing on a bare `<Pressable>`.
+- **There is no `<form>`.**
+- **`className` is compiled away by babel** before anything can observe it.
+
+## Not every task is ported, and the tool says which
+
+| task | under `--expo` |
+|---|---|
+| `unit-browser` | **runs** — jest-expo + @testing-library/react-native |
+| `perf-static` | **runs** |
+| `react-rules` | **runs** |
+| `perf-harness`, `a11y`, `e2e`, `load` | **refuse**, naming the task and the wave that will implement it |
+
+A refusal is a failed `TaskResult`, not a thrown error, so it lands in `results[]`, in the `--ci` blob and in `REPORT.md` where a machine can read it. A mixed selection still runs what it can.
+
+**Refusing beats emitting.** The DOM suite pointed at React Native produces specs that run, pass, and touch nothing: `container.querySelector("Pressable")` matches no element, and `getByRole("button")` finds nothing. A green suite that tested nothing is the one outcome this tool must never produce.
+
+Two of those refusals are load-bearing rather than temporary, and both were measured on a real Expo app before the mode was written:
+
+- **`a11y` would be vacuously green.** Its 28 rules are HTML/ARIA rules. Over 31 React Native files carrying 82 unlabelled `<Pressable>` elements — with no `testID`, `accessibilityLabel` or `accessibilityRole` between them — they return **zero findings**, while the same configuration finds 3 of 3 on the tool's own offender fixture. A clean report meaning "these rules do not apply" is worse than no report.
+- **The React Compiler changes what `perf-static` means.** On a project with `experiments.reactCompiler: true`, **136 of 168 findings** were the three memoisation rules — work the compiler already performs. `--expo` reads the flag today; acting on it is a later wave.
+
+## The native unit plane
+
+`--expo --tasks unit-browser` writes `jest.config.cjs`, a write-once `jest.setup.ts`, and one spec per exported component under `<outDir>/unit/`, then merges `flawless:unit` into the app's `package.json`.
+
+### The version pairing is derived, never guessed
+
+| package | pin | why |
+|---|---|---|
+| `jest-expo` | your **own** SDK major | `jest-expo@54` pairs with Expo SDK 54 |
+| `jest` | `^29.7.0` | jest-expo's own tooling is `^29.2.1`; a bare `jest` resolves to 30 and fails as `clearMocksOnScope is not a function` |
+| `@testing-library/react-native` | `^13.3.3` | **13, not 14** — expo-router 6's testing-library is built against `react-test-renderer` |
+
+When the SDK major cannot be read, `jest-expo` is left undeclared and the run says so. It never substitutes a number.
+
+### Three spec shapes
+
+**A route screen** mounts through `renderRouter` at its own URL. Not a preference: `useFocusEffect` reaches `useNavigation()`, which throws outside a navigator, and `useLocalSearchParams` is empty. Inside a real navigator the screen is *focused*, so focus effects run and the spec can assert loaded state rather than the loading skeleton.
+
+**A `_layout`** mounts through its own navigator with one synthesised child — `<Tabs>` and `<Stack>` call `useContextKey` and throw when rendered alone.
+
+**Everything else** mounts through `render()`.
+
+### Navigation intent is a unit assertion
+
+Where the source names a literal route, the spec asserts where it lands:
+
+```tsx
+fireEvent(screen.getAllByText("Add")[0], "press");
+expect(screen).toHavePathname("/items/new");
+```
+
+That is the React Native analogue of asserting a link's `href`.
+
+### No emitted spec touches the network
+
+A module that resolves project-locally and performs `fetch()` is mocked. Before this existed, the fixture suite made live HTTP calls and crashed a jest worker against a real server.
+
+## Skips name the fix
+
+There is deliberately **no last-resort locator**. A control with no `testID`, no `accessibilityLabel`, no `accessibilityRole` and no text under it becomes a `test.skip` carrying the reason and the remedy:
+
+```
+test.skip("onPress on <Pressable> — <Pressable> renders only an icon, so no
+  text names it — add an accessibilityLabel, which makes it announceable as
+  well as addressable")
+```
+
+The same absence is what makes the control silent to a screen reader, so one `accessibilityLabel` retires both the skip and the accessibility gap. Answer a skip by adding the label to the app, not by loosening the ladder.
+
+## Limits worth knowing
+
+- **Colocation is impossible under `app/`.** expo-router's `require.context` matches every `.tsx` under the router root, so a colocated spec would register as a route. Native specs for route files always go to the out dir.
+- **Check your own `test` script.** A bare runner with no path filter sweeps the generated specs into the project suite and runs them under a runner they were not written for. The tool warns; scope the script.
+- **Three DOM assertions have no honest native equivalent** and are dropped rather than faked: the root-tag query, the className-flow check, and anything asserting a style token.
