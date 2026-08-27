@@ -39,7 +39,7 @@ A refusal is a failed `TaskResult`, not a thrown error, so it lands in `results[
 
 Two of those refusals are load-bearing rather than temporary, and both were measured on a real Expo app before the mode was written:
 
-- **`a11y` would be vacuously green.** Its 28 rules are HTML/ARIA rules. Over 31 React Native files carrying 82 unlabelled `<Pressable>` elements — with no `testID`, `accessibilityLabel` or `accessibilityRole` between them — they return **zero findings**, while the same configuration finds 3 of 3 on the tool's own offender fixture. A clean report meaning "these rules do not apply" is worse than no report.
+- **`a11y` would be vacuously green.** Its 29 rules are HTML/ARIA rules. Over 31 React Native files carrying 82 unlabelled `<Pressable>` elements — with no `testID`, `accessibilityLabel` or `accessibilityRole` between them — they return **zero findings**, while the same configuration finds 3 of 3 on the tool's own offender fixture. A clean report meaning "these rules do not apply" is worse than no report.
 - **The React Compiler changes what `perf-static` means.** On a project with `experiments.reactCompiler: true`, **136 of 168 findings** were the three memoisation rules — work the compiler already performs. `--expo` reads the flag today; acting on it is a later wave.
 
 ## The native unit plane
