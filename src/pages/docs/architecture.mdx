@@ -130,12 +130,39 @@ The split buys three things:
 - **Test rendering without touching disk.** `renderSuite` returns an array, so the scaffold tests assert on the in-memory result before the integration tests round-trip through `Bun.write`.
 - **Swap either side independently.** A future SWC-based analyser only has to produce a `ComponentTree` and the scaffolder is unchanged. A future scaffolder that emits a Vitest suite instead of a Playwright one only consumes the tree.
 
+## What it borrows from crust
+
+Two of the load-bearing pieces here are not original, and it is worth saying where they came
+from. [crust](https://crust.in.drlario.org) is the sibling project — a pipeline-first test and
+devops toolkit shipped as one binary — and flawless-react leans on it twice.
+
+The `load` task **emits crust pipelines**: `load/routes.pipes` holds one pipe per route and per
+GET API operation the analysed components fetch, and crust runs them. flawless-react does not
+implement load generation, percentile maths, or a baseline gate; it writes the pipes and gets
+out of the way. See [Load pipes with crust](/docs/recipes/crust-load-pipes/).
+
+The **docs-lint harness is crust's, retargeted.** crust solved "the shipped prose drifts from
+the code it describes" with a test that opens its own README, docs and skills and parses every
+documented invocation against the live CLI. flawless-react had no such gate, and a single
+reading pass found what that costs: a skill documenting a throw the tool never emits, a wrong
+exit-code table, a `--ci` field list two fields stale. The same harness now guards this project's
+prose — and this website's build runs the same check against the published binary, plus crust's
+own `verify-web-links` against the deployed site, so a dead link or a stale example fails the
+deploy rather than a reader.
+
 ## What is intentionally absent
 
 These are limits by design, not gaps waiting to be filled.
 
 - **No runtime.** The CLI never imports React or Playwright. It does not boot a server. It only reads and writes files.
-- **No type checker.** The analyser runs `ts.createSourceFile`, not the full TypeScript program. Imported types are not resolved across files. That trades accuracy for speed and for requiring zero project configuration.
+- **No type checker.** The analyser runs `ts.createSourceFile`, never `ts.createProgram`. There is no type *checker* anywhere in the tool — no assignability, no inference, no diagnostics. That trades accuracy for speed and for requiring zero project configuration.
 - **No code generation framework.** Templates are string concatenations. Easy to read, easy to diff against the generated output, easy to grep.
 
-If a future feature needs cross-file type resolution — resolving a `Props` type imported from a sibling file, for example — the right path is to create a `ts.createProgram` lazily in `extractProps` for that one resolution, not to bring in a heavier framework.
+This page used to say imported types were not resolved across files at all. That stopped being
+true. Resolving a `Props` type from a sibling file, a workspace package, or through a barrel
+re-export is now routine, as is reading a `z.infer` alias back to its schema and a dependency's
+declared `Promise<T>` return — all of it through the tool's own `ModuleResolver` and
+`SourceFileCache` walking `ts.createSourceFile` output, not through a program instance. The
+distinction that survives is the one above: it *resolves declarations*, and it never *checks
+types*. Where a declaration cannot be followed to a literal-derivable value, the analyser bails
+and plants a marker rather than guessing.

@@ -11,10 +11,11 @@ standalone — it knows nothing about `flawless-react` once it has been written,
 edit, fork, or delete it without affecting the generator.
 
 Each task writes its own slice of the directory. `perf-harness` owns `host/` and `profile/`,
-`unit-browser` owns `unit/` and `browser/`, and the three analysis tasks (`perf-static`, `a11y`,
-`react-rules`) write JSON into `reports/`. The slices barely overlap: `package.json` is the only
-file two tasks both touch, and the second one merges into it rather than replacing it. Everything
-else the tasks share is the component analysis they all read from.
+`unit-browser` owns `unit/` and `browser/`, `e2e` owns `e2e/`, `load` owns `load/`, and the three
+analysis tasks (`perf-static`, `a11y`, `react-rules`) write JSON into `reports/`. The slices barely
+overlap: `package.json` is the only file two tasks both touch, and the second one merges into it
+rather than replacing it. Everything else the tasks share is the component analysis they all read
+from. Every run also writes `REPORT.md`.
 
 The default output directory is `./.flawless`; `--out <dir>` moves it.
 
@@ -30,7 +31,8 @@ The default output directory is `./.flawless`; `--out <dir>` moves it.
 │   ├── server.ts             # Bun.serve over a Bun.build bundle of your component(s)
 │   ├── _polyfill.ts          # process / global / setImmediate shims for the browser
 │   ├── index.html            # the shell the bundle mounts into
-│   └── main.tsx              # createRoot + <Profiler> + react-scan + window.__profile driver
+│   ├── registry.ts           # REGISTRY / FN_PROPS / WRAP_IN — regenerated every run
+│   └── main.tsx              # write-once: createRoot + <Profiler> + react-scan + the ALL spreads
 ├── profile/                  # perf-harness
 │   ├── _helpers.ts           # render-info / scan-event harvesters, summarize() stats
 │   ├── _heap.ts              # CDP-driven heap-snapshot helpers (write to ./heaps/)
@@ -40,14 +42,30 @@ The default output directory is `./.flawless`; `--out <dir>` moves it.
 ├── browser/                  # unit-browser
 │   ├── playwright.config.ts
 │   └── <Component>.spec.ts
+├── provider.tsx              # only with --provider — the derived wrapper
+├── provider.fixtures.ts      # write-once — the values your provider chain needs
+├── e2e/                      # e2e (Next.js mode)
+│   ├── global-setup.ts       # write-once login stub; writes .auth.json
+│   ├── params.json           # merge-preserving — real ids per dynamic route
+│   └── <route>.spec.ts
+├── load/                     # load
+│   ├── routes.pipes          # crust pipelines per route and per GET API operation
+│   ├── routes.setup.ts       # write-once — seeds LOAD_<PARAM> ids, proves the auth
+│   ├── last-<name>.json      # written every run
+│   └── baseline-<name>.json  # you promote one of the above by hand
 ├── mock/                     # only with --api
 │   ├── server.ts             # Bun.serve on :5174, host proxies non-asset requests to it
-│   └── routes.ts             # static route handlers derived from the OpenAPI spec
+│   └── routes.ts             # write-once — static route handlers derived from the spec
 ├── reports/                  # perf-static / a11y / react-rules findings + summary.json
 ├── scripts/report.mjs        # only with --report
 ├── heaps/                    # populated at test time — V8 .heapsnapshot files
+├── REPORT.md                 # every run — what mounted, what was excluded, hand-work left
 └── README.md                 # how to run + customise the suite
 ```
+
+With `--colocate`, the unit specs move out of `unit/` and land beside your sources as
+`<Component>.flawless.test.tsx`, each opening with a provenance stamp. The rest of the
+directory is unaffected. See [Colocated spec stamps](#colocated-spec-stamps).
 
 A `<Component>.flawless.json` is also dropped next to each analysed source file, outside the output
 directory. That is covered at the end of this page.
@@ -178,15 +196,65 @@ at `globalThis`, and falls back to a `setTimeout`-based `setImmediate`.
 It is imported first from `main.tsx`. ESM evaluates imports in source order, so `globalThis` is
 patched before any other module is initialised.
 
+## host/registry.ts
+
+The mechanical half of the host: one import line per analysed component, the `Component` type, and
+three tables the wrapper beside it reads.
+
+- **`REGISTRY`** maps component names to imported components, populated from the analysed
+  `ComponentTree`.
+- **`FN_PROPS`** names the props each component calls. A spec's props reach the page through
+  `page.evaluate`'s structured clone, which drops functions silently, so `mount` supplies a no-op
+  for every named prop the incoming object did not define. Without it an `error.tsx` whose
+  `<Button onClick={reset}>` never received `reset` throws the instant the click lands.
+- **`WRAP_IN`** names the ancestors HTML requires around a component's root tag. `<TableBody>`
+  renders `<tbody>`, which is only valid inside a `<table>`; mounted straight into `#root` it makes
+  React log *"In HTML, `tbody` cannot be a child of `div`"*, and the browser spec then fails the
+  component for a warning the harness caused. `mount` nests the element through the chain.
+
+This file is **regenerated on every run** — a plain re-run with no `--force` rewrites it, even
+though `host/main.tsx` beside it is kept. That is how a component you analysed for the first time
+today gets profile and browser specs that can actually mount it.
+
+**Edit never.** The next run rewrites the file byte-for-byte from the analysis, so per-component
+wiring written here is lost. Hand registrations belong in `host/main.tsx`'s `ALL` spread, which
+survives.
+
+### A main.tsx older than the split
+
+A `host/main.tsx` generated before the tables were split out bakes them into itself and has no
+`./registry` import, so newly analysed components can never mount through it — and the tool cannot
+repair it for you. Write-once is absolute: no flag rewrites `host/main.tsx`, `--force` included,
+because `budgets.json` and your provider wiring rest on that same promise. So the run writes
+`host/registry.ts` inert beside it and warns, naming the file under whatever `--out` you used:
+
+```text
+[flawless] flawless/host/main.tsx predates the registry split: it bakes in its own component tables, so newly analysed components cannot mount through it, and no flag may rewrite a write-once file — delete host/main.tsx and re-run (provider wiring regenerates from --provider), or port your hand wiring and import "./registry".
+```
+
+A shorter form of the same note rides along in the `perf-harness` summary, so it reaches the run's
+result JSON rather than only scrolling past on stderr.
+
+The escape is one-time, and it is one of those two moves. Delete `host/main.tsx` and re-run —
+provider wiring regenerates from `--provider`, so what you lose is only what you typed in by hand —
+or port that hand wiring into a wrapper of your own that imports `./registry`.
+
 ## host/main.tsx
 
-This is the heart of the runtime. Three things happen here:
+The wrapper around those tables, and the user-owned half of the host. It is **write-once**: written
+when it is absent and never again, under any flag, because nothing in it can be rebuilt from the
+analysis — the `./_polyfill` import that has to evaluate first, the provider wrapping, the MSW
+worker under `--api`, the `<Profiler>` plumbing, and whatever you added yourself.
+
+Three things happen here:
 
 1. **react-scan is initialised once at module load**, with `log: false`. Its `onRender` callback
    buffers any render flagged `unnecessary: true` into a `scanEvents` array, tagged with the
    component's display name and a `performance.now()` timestamp.
-2. A **`REGISTRY`** maps component names to imported components. The CLI populates this from the
-   analysed `ComponentTree`, one import line and one registry entry per component.
+2. **The mount tables are imported from `./registry`** and spread into `ALL`, `ALL_FN_PROPS` and
+   `ALL_WRAP_IN`, the three objects every lookup below actually reads. The import sits last among
+   the app imports on purpose: it pulls in every component module, and a component with
+   module-scope code leaning on a provider or MSW module's side effects needs that order kept.
 3. **`window.__profile`** is exposed for the Playwright driver:
 
 ```ts
@@ -209,15 +277,48 @@ render lands, and throws if nothing has rendered within 5000 ms. `rerender` re-i
 waits one `requestAnimationFrame` for React to commit. `unmount` tears down the root and clears both
 dictionaries, which is why the per-test counters start clean.
 
+`mount` also carries out the error React swallowed. `createRoot` is given an `onUncaughtError`
+handler and the failure path reports what it caught, so a component that throws during render says
+*what* it threw rather than the generic "did not render within 5000 ms" — which used to look
+identical whether the component hit a missing prop, a missing provider or a bad import.
+
 Measurement uses `<Profiler>` rather than a patching library on purpose: patching approaches
 instrument the classic JSX runtime (`React.createElement`), and `Bun.build` emits JSX through the
 automatic `react/jsx-runtime`. `<Profiler>` works with either runtime and across React versions, so
 the host stays portable.
 
+### The three ALL spreads
+
+The imported tables are never read directly. Each is spread into a local of its own, once:
+
+```ts
+const ALL: Record<string, Component> = {
+  ...REGISTRY /* hand-registered components ride here and survive regeneration */,
+};
+const ALL_FN_PROPS: Record<string, readonly string[]> = {
+  ...FN_PROPS /* hand-registered components' function-prop names ride here */,
+};
+const ALL_WRAP_IN: Record<string, readonly string[]> = {
+  ...WRAP_IN /* hand-registered components' wrapper chains ride here */,
+};
+```
+
+Because every lookup goes through the spreads, a component you register by hand mounts exactly like
+a generated one and outlives every regeneration of `host/registry.ts`. Write it as
+`MyComponent: MyComponent as unknown as Component` — the cast the generator itself emits, since a
+props-typed component is not assignable to `Record<string, Component>` under the suite's strict
+tsconfig.
+
+All three exist for the same reason. A hand-registered component may also call function props, or
+need a wrapper chain around its root tag, and a table without its own spread would silently drop
+your entry the next time the registry is rewritten. With only the first spread you would register a
+component that mounts and then throws on its first click, having been handed no stub for the
+handler the click calls.
+
 **Edit when**: you want to wrap components in a provider (router, theme, query client, store) —
 prefer the `--provider <file>` flag at scaffold time, which threads your wrapper through `mount` and
-`rerender` for you. You can also expose additional helpers on `window.__profile` if your tests need
-them.
+`rerender` for you. You can also hand-register a component the analyser cannot see in the `ALL`
+spread, or expose additional helpers on `window.__profile` if your tests need them.
 
 ## host/main.tsx with --provider
 
@@ -442,6 +543,41 @@ Element lookups prefer `getByTestId`, then `getByLabelText` for an `aria-label`,
 with the accessible name, then an ID or text query. That ordering means the generated tests break
 for the right reasons — a changed class name does not fail them, a removed accessible name does.
 
+## Colocated spec stamps
+
+With `--colocate` the unit specs are written beside your sources as
+`<Component>.flawless.test.tsx` instead of into `unit/`, and each one opens with a provenance
+stamp:
+
+```text
+// @flawless-generated sha256:<hex16> flawless-react@<version>
+```
+
+`<hex16>` is the first 16 hex characters of the sha256 of everything **below** the line, computed
+**after** the run's style pass — so the stamp names the bytes your project's own formatter left on
+disk, not the raw template. A suite whose formatter rewrites quotes or line width would otherwise
+report every spec as hand-edited the moment it was written.
+
+That is the whole point of the stamp: it tells "still exactly what we generated" from "someone
+worked on this".
+
+| State on disk | Plain re-run | `--force` |
+| --- | --- | --- |
+| no spec yet | written, stamped | written, stamped |
+| stamp matches the body | kept | **rewritten** from the current templates |
+| stamp mismatch — you edited or reformatted it | kept | kept, listed as hand-edited |
+| no stamp line — pre-stamp, or you removed it | kept | kept, listed as pre-stamp |
+
+Both kept-under-`--force` cases are named in the run summary, with the same escape hatch: **delete
+the file and re-run to regenerate it.** Kept files also drop out of the run's hand-work tallies — a
+`TODO(flawless)` inside a render that was never written is not your debt, and counting it would
+inflate the number REPORT.md exists to make honest.
+
+Deleting only the stamp line does not hand the file back to the tool. It demotes the spec to
+pre-stamp, which is still kept under every flag. The unit of ownership is the file.
+
+The [regeneration rules](/docs/extending/) cover the rest of the write-once set.
+
 ## browser/playwright.config.ts
 
 A second, separate Playwright config for the functional browser specs. It has its own `testDir`
@@ -513,6 +649,172 @@ GET reflects it — conditional responses based on query or body, or delayed res
 file is a starting point: replace any route's static body with a function that inspects the
 `Request` and returns a `Response`.
 
+## provider.tsx and provider.fixtures.ts
+
+Next.js mode writes both, at the root of the output directory.
+
+`provider.tsx` is the client-safe provider chain, derived from your app-router layout's JSX around
+`{children}` — the same wrapper your pages really render inside, minus what cannot run in a client
+test. Non-literal props the layout passed are emitted as `TODO(flawless)` comments rather than
+guessed at, so a session the layout read on the server becomes a named hole instead of a
+plausible-looking lie. Because it is derived from the layout, `--force` refreshes it when your
+provider chain changes.
+
+`provider.fixtures.ts` beside it holds the values that chain needs: your store's initial state, a
+query client, a theme. It is **write-once** and no flag overwrites it, because nothing can recover
+a typed fixture from a layout. That division is the useful one — the shape of the chain is the
+tool's to keep current, the values in it are yours.
+
+## e2e/
+
+Written by the `e2e` task, which runs in Next.js mode only. Every analysed app-router `page.tsx`
+becomes one spec, and `e2e/playwright.config.ts` boots the target's own `bun run dev`, reading the
+port out of that script.
+
+Running against the real app is a decision rather than a shortcut. MSW can only intercept `fetch`,
+and a React server component that queries the database directly never issues one — so an MSW-backed
+route test would render against your real data while claiming to be mocked. Seed the database with
+whatever your repo already provides, then run. Nothing is stubbed and nothing pretends to be.
+
+### e2e/global-setup.ts
+
+Where login goes, and **write-once**. As shipped it writes an empty storage state to `.auth.json`,
+so the config's `storageState` reference always resolves, above a worked example: request your login
+endpoint with a Playwright request context and persist `storageState` to that same path. Fill it in
+once — the file is yours, and `.auth.json` is gitignored.
+
+REPORT.md counts the hook as hand-work for exactly as long as the file on disk is byte-identical to
+what the tool emits. That is an identity check, not a grep for the `TODO(flawless)` marker, so
+wiring in your login while leaving the comment above it stops the report rather than nagging
+forever.
+
+### e2e/params.json
+
+The seeded ids, one entry per dynamic route, and **merge-preserving** under `--force`: nothing you
+have typed is ever removed, and neither is a blank slot another task added. A spec resolves each
+segment in order — `FLAWLESS_E2E_<PARAM>` from the environment, then `routes[<route>][<param>]`,
+then `defaults[<param>]`, then the legacy `FLAWLESS_E2E_ID`.
+
+When nothing resolves, the spec **skips with the reason** instead of navigating. The placeholder it
+replaced built a URL that 404s, so a fixture nobody had filled in was reported as an application
+bug, once per route.
+
+The same file carries `landing`, for a route that redirects **on purpose** — a default sub-tab, a
+locale landing — which the landing assertion below would otherwise fail forever:
+
+```json
+{ "landing": { "/dash": "/dash/overview" } }
+```
+
+Recorded there and not in the spec: `--force` regenerates specs and leaves `params.json` alone, so
+an expectation written into a spec is advice the next regeneration deletes.
+
+### e2e/&lt;route&gt;.spec.ts
+
+Each spec navigates its route, asserts the response is not 5xx, waits for `networkidle`, asserts it
+is still on the route it asked for, and requires an empty `pageerror` and console-error list. Where
+the page's component tree contains click interactions, up to three of them are replayed in a second
+test, each behind a visibility check so a spec never fails merely because an element sits behind
+state it did not open.
+
+`FLAWLESS_E2E_BASEURL` overrides the base URL and makes the config skip booting its own `webServer`.
+That is how you put a [crust](https://crust.in.drlario.org) validation proxy between the browser and
+the app, then assert afterwards that nothing the UI triggered violated your OpenAPI spec.
+
+### Why the emitted suite refuses to be green before it is real
+
+Until `global-setup.ts` is filled in, the suite runs unauthenticated — and that used to pass. A
+protected route 302s to `/login`, `page.goto` follows the redirect, and the login page answers
+**200** with a clean console. "Not 5xx" and "no console errors" are both true of somebody else's
+form, so thirty route specs could go green having tested one login screen.
+
+The landing assertion closes it, and it is in every spec — the render test and the interaction test
+both, since a login page swallows every visibility-guarded click and then reports a clean error
+list. After `networkidle` the spec compares the final pathname against the route it navigated to,
+trailing slashes normalised.
+
+Stated precisely, because an overclaim here is the same bug wearing a different hat: it catches
+redirects that **change the URL** and have landed by the time the spec looks — a server 3xx, and a
+client-side navigation that completes before `networkidle` settles. It does not catch a middleware
+*rewrite* that serves the login page at the requested path, a 401 body, or a redirect that fires
+later than the spec waited. A 401 usually still reds the spec, through the console-error check
+rather than this one.
+
+## load/
+
+Emit-only: the `load` task writes files and runs nothing. Its targets are the analysed page routes
+plus the **GET** endpoints your components actually fetch. Mutations are excluded deliberately — a
+default load run should not write junk into whatever environment it is pointed at.
+
+### load/routes.pipes
+
+One [crust](https://crust.in.drlario.org) pipeline per target, in crust's CI-gate shape: one assert
+per threshold, with the baseline read back asynchronously.
+
+```text
+load 10s 50/s | parallel 16 | GET $LOAD_BASE/dashboard/buildings/$LOAD_ID -H "$LOAD_AUTH" --timeout 2s | expect 200 \
+  | stats --out flawless/load/last-dashboard-buildings-id.json \
+  | assert (async s => { const b = Bun.file("flawless/load/baseline-dashboard-buildings-id.json"); return !(await b.exists()) || s.p95 < 2 * (await b.json()).summary.p95 })
+```
+
+A pipe whose ids are still blank is emitted **commented out**, above a line naming the exact key to
+fill. A pipe with an empty segment does not measure its route — it measures your 404 handler:
+`GET /invite/` with an empty token answered 500 on every one of 500 requests, and the run reported
+the route as failing when the truth was that nothing seeds an invitation. The route stays visible,
+so the file itself says what is not being measured. Fill the id, regenerate with `--force`, and the
+pipe turns back on.
+
+### load/routes.setup.ts
+
+crust imports the sibling setup module of a pipes file and awaits its default export before a single
+pipe runs. This is that module, and it does two jobs.
+
+It seeds one `LOAD_<PARAM>` per id in `e2e/params.json`, so the load pipes and the e2e specs cannot
+drift apart over which records they target — and it **throws when it seeded none** while any dynamic
+route is in the file, rather than letting those pipes request URLs with empty segments. The shim it
+replaced was a shell script whose own comments record two incidents of exporting nothing silently.
+This has one failure mode, and it is loud.
+
+Then it probes every static route and checks where the request actually landed. crust follows
+redirects, so an expired cookie turns a protected route into a login page answering 200: the status
+check passes, `stats` reports healthy percentiles, and the whole file goes green having measured a
+login form. Nothing downstream can catch that either — a load-mode record carries the *requested*
+URL, not the landed one — so the probe has to happen here, before any measurement, and it is
+enforced rather than left to you. A route that redirects by design goes under `landing` in
+`params.json`, the same map the e2e specs read.
+
+The module is **write-once**. A check that knows your app — an authenticated endpoint answering 401
+is a sharper signal than a redirect — beats the generated one, and no regeneration overwrites
+yours. It is written whenever it is absent, so a suite that predates it still gets the guard.
+
+### The env contract
+
+`LOAD_BASE`, `LOAD_AUTH`, and one `LOAD_<PARAM>` per dynamic segment, the last of those seeded for
+you by the setup module. Two of them decide whether the numbers mean anything:
+
+- **`LOAD_BASE` must point at a production build** — `bun run build && bun run start`, not
+  `next dev`. The dev server compiles routes on demand, so the first request to each route measures
+  the compiler and the rest measure a warm cache.
+- **`LOAD_AUTH` is a header line**, and in a Next.js app it is usually a cookie:
+  `cookie: session=<value>`, not `authorization: Bearer …`. The setup module rejects a value with no
+  colon in it for that reason.
+
+### Baselines
+
+Every run writes `load/last-<name>.json`. Nothing writes a baseline for you: copy a good
+`last-<name>.json` to `baseline-<name>.json` and commit it, and from then on the pipe fails when its
+p95 exceeds 2x the recorded one. `last-*.json` is gitignored. The assert reads the baseline back at
+run time and passes when the file is absent, so an un-promoted pipe measures without gating.
+
+`--force` folds this run's routes into an existing `routes.pipes` rather than replacing it, matching
+pipes by the name in their `stats --out` path rather than by line number. Only a pipe's comment
+state is ever changed, so a rate you tuned survives being gated and un-gated, and nothing is pruned
+— a stale generated pipe and a POST flow you added by hand look identical to a line-oriented parser.
+
+**crust does not have to be installed** for the task to succeed. It says so in its summary instead
+of failing a generation run over a missing optional tool. Once crust is installed, run the file with
+`bun run flawless:load`.
+
 ## scripts/report.mjs
 
 Only with `--report` — and that is also the only time the suite's `package.json` declares a `report`
@@ -573,6 +875,36 @@ enable.
 `summary.json` records `ts` (an ISO timestamp) and, for each task, its `id`, whether it was `ok`,
 its one-line `summary`, how many files it wrote, how many findings it produced, and any `error`.
 It is written on every run, even when only scaffolding tasks were selected.
+
+## REPORT.md
+
+Written by **every** run, whichever tasks you selected, and the file to read first.
+
+Its job is accounting. Every component the analyser found lands in exactly one column of its
+component table — mountable in the browser host, or not — broken down by render mode, with the
+arithmetic spelled out underneath so the totals can be checked rather than trusted. Files that
+yielded no component at all are listed separately with the reason, because "nothing was found here"
+and "this was never looked at" are different facts.
+
+A task table follows: files written, findings, lifecycle status (generated / refreshed / kept) and
+the one-line summary, per task — plus an explicit note of the tasks this run did not select. A
+`--tasks load` run should not read as "this project has one task". Scripts the run left alone
+because their commands are not ones this tool version writes are named here too.
+
+Then **hand-work remaining**: the `TODO(flawless)` markers the emitters planted, by kind, with a
+count and an example file to search from. Each marker is a place where a spec needs a human — a
+fixture, an addressable target, an assertion the source could not support statically — so this is
+the adoption cost the component table cannot show. The section is always present, in one of three
+states: a table, an explicit "none", or an explicit "not measured" naming the tasks that reported no
+count. A silently absent table reads as zero debt, and on the app this tool was built against the
+truth was 181 markers.
+
+Below that comes every component with no browser profile spec and the reason for each, then the
+standing gaps — properties of the analysis rather than of this run, which do not go away by
+re-running it.
+
+REPORT.md carries no timestamp and every list in it is sorted, so a second identical run leaves
+`git status` empty.
 
 ## &lt;Component&gt;.flawless.json
 

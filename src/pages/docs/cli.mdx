@@ -120,9 +120,20 @@ Or install flawless-react from the source package, which carries `@biomejs/biome
 Beyond whatever the selected tasks write, every run produces:
 
 - `<outDir>/reports/summary.json` — a timestamp plus, per task, its id, ok flag, one-line summary, output count, finding count, and error if it failed.
+- `<outDir>/REPORT.md` — the human account of the same run: how many components can mount, what was excluded and why, and a table of the hand-work still outstanding.
 - A `<Component>.flawless.json` next to each analysed source file, unless `--no-inline-summary`. It holds per-task finding counts, the three highest-severity findings, and paths to the full `a11y`, `react-rules`, and `perf-static` reports. This is what makes issues surface where the code lives rather than only in a terminal that has scrolled away.
 
 Findings are printed grouped by file, one line each as `severity  line:column  rule  message`, followed by a summary table with a status, file count, and finding count per task.
+
+### Each entry in `results` carries what the task *did*
+
+Alongside `ok`, a task reports a `status` of `"generated"`, `"refreshed"` or `"kept"`. The
+distinction is the whole point of a re-run: a fresh output directory is **generated**, a
+re-run over an existing one **refreshes** the derived files while write-once files hold, and
+a run that deliberately wrote nothing — `--changed` over an untouched harness — is **kept**.
+All three are `ok: true`. Reading only the ok flag turns a healthy re-run and a first
+generation into the same event, which is exactly the reading that used to report a working
+suite as "task threw". See [Regenerate without losing work](/docs/recipes/safe-regeneration/).
 
 ### The two streams are decided separately
 

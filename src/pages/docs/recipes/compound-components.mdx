@@ -1,0 +1,275 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Compound parts that need a Root
+description: The compound-part render mode, same-file family derivation, trigger/content/other mount shapes, portal-aware assertions, the open-state family list, the honest skips and their TODO, and host/registry.ts.
+---
+
+**Goal:** turn the components that throw the moment you render them alone — `<Dialog.Content>`, `<Select.Item>`, every shadcn part — into specs that actually mount, and keep a visible skip everywhere the wrapper would be a guess.
+
+## The failure mode
+
+A design-system part is not a component you can render. It is a component that reads a context its Root provides. Render it alone and you get this, from real `@radix-ui/react-dialog`:
+
+```text
+ FAIL  unit/zBareControl.test.tsx > a bare part outside its Root
+Error: `DialogTitle` must be used within `Dialog`
+ ❯ useContext ../node_modules/@radix-ui/react-context/src/create-context.tsx:158:13
+ ❯ DialogTitle ../node_modules/@radix-ui/react-dialog/src/dialog.tsx:459:21
+
+ Test Files  1 failed (1)
+```
+
+That is one part. A shadcn `ui/` directory has thirty, and a generator that emits `render(<DialogTitle />)` for each hands you thirty red specs on day one — which is how a generated suite gets deleted in week two.
+
+So the analyser names the situation. A component whose unconditional render subtree contains an `X.Member` tag from `@base-ui`, `@radix-ui` or `@ariakit`, with no `X.Root` or `X.Provider` of its own anywhere in that subtree, is classified **`compound-part`** — and the reason is written into both the spec and the run report. Naming it is what lets the tool assert something true instead of pretending.
+
+## Point it at the file, not at the default component
+
+A parts file exports many components; the default root mode analyses one.
+
+```bash
+flawless-react "src/components/ui/dialog.tsx" --tasks unit-browser --no-interactive
+```
+
+```text
+  [ok] unit-browser   files:4 findings:0  unit tests for 1 component(s) (browser specs skipped — add perf-harness …): Dialog
+```
+
+One component. `Dialog` is the Root: it renders `<DialogPrimitive.Root>`, supplies its own context, mounts fine. The five parts that *don't* were never analysed. Add `--roots exported`:
+
+```bash
+flawless-react "src/components/ui/dialog.tsx" --roots exported --tasks unit-browser,perf-harness --out flawless --no-interactive
+```
+
+```text
+  [ok] unit-browser   files:11 findings:0  unit tests for 6 component(s): Dialog, DialogTrigger, DialogOverlay, DialogContent, DialogTitle, DialogDescription
+  [ok] perf-harness   files:19 findings:0  scaffolded perf suite for 6 of 6 component(s): Dialog, DialogTrigger, DialogOverlay, …
+```
+
+**6 of 6.** Every part mounted, including the five that throw bare. For a whole-app sweep `--roots exported` is the mode you want — a shadcn `card.tsx` exports seven components and `primary` sees one.
+
+## The family comes from the part's own file
+
+The wrapper a part needs is `<Dialog open><DialogContent>…</DialogContent></Dialog>` — the Root and Content *of your own wrappers*, not the primitive's. That family is derived from **the part's own module and nothing else**.
+
+For each `compound-part` unit it collects every `X.Member` tag in the unit's own render, drops packages the unit already roots itself, and requires exactly one unrooted package to remain. Then it scans the file's other **named** exports for that package: a sibling rendering `Root` or `Provider` becomes the family **root**, one rendering `Content` or `Popup` the family **content**. The unit's own role falls out of its members — `Trigger` makes it a **trigger**, `Content`/`Popup` the **content**, anything else an **other** part living inside the popup.
+
+Same-file only, on purpose. A cross-file family means chasing the child tree to find whoever renders the Root, and a wrong wrapper is worse than no wrapper. When the file does not answer the question, the tool says so instead of guessing — see [the honest skips](#the-five-shapes-that-keep-an-honest-skip).
+
+## Three mount shapes
+
+| Part role | Wrapped as | Why |
+| --- | --- | --- |
+| `trigger` | `<Root>` — **closed** | A trigger's visible state is the closed one; `open` renders the popup over the thing under test. |
+| `content` | `<Root open>` | It *is* the content — a second wrapper would nest it inside itself. |
+| `other` | `<Root open><Content>…</Content></Root>` | Titles, descriptions, overlays, items: everything inside an open popup. |
+
+The emitted spec for an `other` part, verbatim from a run over a stock shadcn `dialog.tsx`:
+
+```tsx
+// flawless/unit/DialogTitle.test.tsx
+import { test, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
+import type * as React from "react";
+import { DialogTitle } from "../../src/dialog";
+import { Dialog, DialogContent } from "../../src/dialog";
+
+// DialogTitle renders <DialogPrimitive.Title> from @radix-ui/react-dialog, which throws outside its Root. …
+// Its own file exports the family, so the spec mounts the part the way call
+// sites do instead of skipping. Portal content lands outside the container, so
+// the assertions read the whole document — via screen and baseElement.
+// (A part taking no children gets the other branch: no slot text to look for,
+// so it asserts the mount put elements in the document at all.)
+const DEFAULTS: Record<string, unknown> = {};
+
+test("DialogTitle mounts inside its family wrapper", () => {
+  const { baseElement } = render(<Dialog open><DialogContent><DialogTitle {...(DEFAULTS as React.ComponentProps<typeof DialogTitle>)}><span>flawless-slot</span></DialogTitle></DialogContent></Dialog>);
+  expect(screen.getAllByText("flawless-slot").length).toBeGreaterThan(0);
+  expect(baseElement.textContent).toContain("flawless-slot");
+});
+```
+
+Nothing exotic: it mounts the part the way your call sites do.
+
+`getAllByText` rather than `getByText` is deliberate, and the reason is worth knowing if
+you write assertions like this by hand. `getByText` throws when it finds *more than one*
+match — a uniqueness constraint that has nothing to do with the part under test. Real
+primitives duplicate the child: a radix `Select` mounted without its `SelectTrigger`, which
+is exactly how this wrapper mounts it, renders a mirror `<option>` for the bubble select,
+and radix `Tooltip` 1.0.x renders children again inside a visually-hidden node. `getAllByText`
+still throws *"Unable to find an element with the text"* on zero matches, so a part that
+renders nothing is still caught — it just stops failing components for rendering their
+children twice.
+
+Against the real primitive the spec is green, along with its siblings:
+
+```text
+ ✓ unit/DialogTrigger.test.tsx (1 test) 11ms
+ ✓ unit/DialogOverlay.test.tsx (1 test) 41ms
+ ✓ unit/DialogContent.test.tsx (1 test) 43ms
+ ✓ unit/DialogTitle.test.tsx (1 test) 43ms
+
+ Test Files  4 passed (4)
+      Tests  4 passed (4)
+```
+
+## The assertions read the whole document
+
+A dialog's content renders through a **portal**: it lands on `document.body`, not inside the container Testing Library made for the render. A spec that reads `container` sees an empty div and fails a component that worked perfectly.
+
+So the assertion above names two surfaces. `screen` is bound to `document.body`, seeing a part that portalled *and* one that rendered inline; `baseElement` is that same document from the render result's side. A part that rendered nowhere satisfies neither — while the cheap version of this spec, `expect(() => render(…)).not.toThrow()`, passes for a part that renders absolutely nothing.
+
+**A part that takes no children has no text to witness.** There is no `flawless-slot` to inject, so the spec counts elements instead:
+
+```tsx
+// flawless/unit/DialogTrigger.test.tsx  — a trigger, and childless
+test("DialogTrigger mounts inside its family wrapper", () => {
+  const { baseElement } = render(<Dialog><DialogTrigger {...(DEFAULTS as React.ComponentProps<typeof DialogTrigger>)} /></Dialog>);
+  expect(baseElement.querySelectorAll("*").length).toBeGreaterThan(1);
+});
+```
+
+`render()` always appends its own container div to `baseElement`, so the count starts at 1. Greater than 1 means the composed mount put something in the document — a weaker claim than the text assertion, deliberately so.
+
+## Which families get wrapped
+
+Only families whose Root opens on a **prop**, where `open` is a real documented state and the wrap is mechanical:
+
+`dialog` · `alert-dialog` · `popover` · `dropdown-menu` · `select` · `tooltip` · `hover-card` · `context-menu` · `menubar` · `collapsible`
+
+The package's base name decides it, `react-` prefix stripped, so `@radix-ui/react-dialog` and `@base-ui/dialog` both match. **Value-driven families are deliberately absent** — `accordion`, `tabs`, `radio-group`, `toggle-group`. Their parts mount against a `value` the wrapper would have to invent, and an `<Accordion value="???">` wrapper is a fabricated fixture wearing a test's clothes.
+
+## The five shapes that keep an honest skip
+
+A part whose family the tool cannot derive — or can derive but must not use — gets a spec asserting only what is true in isolation, plus the marker that says a human is needed:
+
+```tsx
+// flawless/unit/AccordionItem.test.tsx
+import { test, expect } from "vitest";
+import { AccordionItem } from "../../src/accordion";
+
+// AccordionItem renders <AccordionPrimitive.Item> from @radix-ui/react-accordion, which throws outside its Root. …
+// Rendering it on its own throws, so this spec asserts only what is true in
+// isolation. TODO(flawless): wrap renderTarget() in the matching Root with an
+// open state to assert its content.
+test("AccordionItem is exported as a component", () => {
+  expect(typeof AccordionItem).toMatch(/function|object/);
+});
+```
+
+The five shapes that land here:
+
+1. **A value-driven family** — accordion, tabs and friends, as above.
+2. **No Root sibling in the file.** A `sheet-title.tsx` exporting one part and importing its Root from elsewhere gets nothing.
+3. **A `Sub`-prefixed part** — `SubTrigger`, `SubContent`, `Sub` itself. They need a `<Sub>` ancestor Root + Content cannot supply; wrapping them was confirmed red against real `@radix-ui/react-dropdown-menu`.
+4. **A default-exported Root.** Both emitters import the wrapper *by name*, and a named import of a default-only export is TS2305 — in the host registry that takes the whole bundle down, not just this part.
+5. **Two unrooted packages in one part.** One wrap cannot fix both; wrapping one leaves the other throwing.
+
+An `other` part with a Root but *no* Content sibling skips too: there is nowhere inside the popup to put it.
+
+## What the run report says about it
+
+`flawless/REPORT.md` accounts for the skips twice — once as adoption cost, once as coverage. From a run over three files carrying an accordion, a dropdown menu with a `Sub` part, and a lone rootless title:
+
+```markdown
+## Hand-work remaining
+
+| Kind | Markers | Example file |
+| --- | ---: | --- |
+| `compound-root-wrap` | 4 | `unit/AccordionContent.test.tsx` |
+
+## Not covered, and why
+
+| Component | File | Reason |
+| --- | --- | --- |
+| `AccordionItem` | `src/accordion.tsx` | renders <AccordionPrimitive.Item> … throws outside its Root. |
+| `SheetTitle` | `src/lone.tsx` | renders <DialogPrimitive.Title> … throws outside its Root. |
+| `DropdownMenuSubTrigger` | `src/menu-parts.tsx` | renders <MenuPrimitive.SubTrigger> … throws outside its Root. |
+```
+
+`compound-root-wrap` is counted at the emission site as each marker is planted — never by grepping the emitted text — so the number cannot drift when a template is reworded. The same run's summary reports `unit tests for 8 component(s)` and `perf suite for 4 of 8 component(s)`: that gap is the truth about the browser suite, printed rather than rounded up.
+
+## The browser host mounts wrapped parts too
+
+Wrapping is not a unit-spec trick. `host/registry.ts` composes the same wrapper into the part's own registry entry, so the profiling host mounts it like any other component:
+
+```ts
+// flawless/host/registry.ts (excerpt) — regenerated on every run
+import { createElement } from "react";
+import { Dialog as DialogTitle__Root, DialogContent as DialogTitle__Content } from "../../src/dialog";
+
+export const REGISTRY: Record<string, Component> = {
+  "DialogTitle": ((props: Record<string, unknown>) => createElement(DialogTitle__Root as never, { open: true } as never, createElement(DialogTitle__Content as never, null, createElement(DialogTitle as never, props as never)))) as Component,
+};
+```
+
+Wrapper imports are **aliased per entry** (`Dialog as DialogTitle__Root`): the Root is usually a registry component in its own right, already imported under its own name from the same module, and unaliased they collide. It gets `{ open: true }` for everything except a trigger, whose Root entry gets `null`.
+
+The composition lives on the **regenerated** side. `host/main.tsx` is write-once and never rewritten, `--force` included; it just spreads `REGISTRY`. So a part that becomes wrappable — you exported its Root, or upgraded the tool — arrives through a plain re-run:
+
+```bash
+flawless-react "src/components/ui/**/*.tsx" --roots exported --tasks unit-browser,perf-harness
+```
+
+`unknown component: <Name>` from a browser spec on a current suite means that re-run has not happened yet.
+
+## Flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--roots <mode>` | `primary` | `exported` is what a parts file needs — one tree per exported component. Without it you analyse the Root and miss every part. |
+| `--tasks <csv>` | interactive menu | `unit-browser` writes the specs; add `perf-harness` for `host/registry.ts` and the profile specs. |
+| `--out <dir>` | `./.flawless` | Specs inside it are rewritten on every run — never hand-harden them there. |
+| `--colocate` | off | Unit specs beside the sources as `<name>.flawless.test.tsx`, kept on re-runs behind a provenance stamp. Where hand-hardening belongs. |
+| `--force` | off | Also rewrites what a re-run keeps — a colocated spec only while its stamp still matches the body. |
+| `--ci` | off | Shorthand for `--no-interactive --json`. |
+
+## What you'll see
+
+A whole-`ui/` sweep, with the aggregation script:
+
+```bash
+flawless-react "src/components/ui/**/*.tsx" --roots exported --tasks unit-browser,perf-harness --report
+```
+
+Generation prints the same two `[ok]` lines as above and drops `flawless/REPORT.md` beside them. Then run the specs: the one red to expect is the *Root's* own smoke spec, not the parts':
+
+```text
+ FAIL  unit/Dialog.test.tsx > Dialog renders at defaults without crashing
+AssertionError: expected null not to be null
+ ❯ unit/Dialog.test.tsx:32:43
+     30| test("Dialog renders at defaults without crashing", () => {
+     31|   const { container } = renderTarget();
+     32|   expect(container.firstElementChild).not.toBeNull();
+       |                                           ^
+```
+
+That is not the parts' problem. `Dialog` is a context provider: with no children at synthesised defaults it legitimately produces no DOM, and the default smoke assertion says otherwise. Give it children in a colocated spec, or accept the red — but do not "fix" it by weakening that assertion for every other component in the suite.
+
+## Limits
+
+Honest about what doesn't work yet:
+
+- **Cross-file families are not derived.** A part whose Root lives in another module keeps the skip, even one hop away. Chasing it needs the child tree, and a wrong Root is worse than a visible TODO.
+- **`Sub` parts and value-driven families stay skips.** No `<Sub>` ancestor is built, and no `value` is invented for accordion, tabs, radio-group or toggle-group.
+- **The element count is weaker for `other` parts.** A trigger or content part mounts under a Root that renders no DOM of its own, so the count really does witness the part. An `other` part also sits inside the Content sibling, whose own DOM satisfies the count — there it witnesses the mount, not the part. Give the part children and the text assertion takes over.
+- **The spec still carries the analyser's original note.** The "Wrap `renderTarget()` in the matching `<Root open>`…" comment is written when the render mode is decided, before the emitter knows it can wrap. On a wrapped spec that sentence is stale — the code under it is the truth, and a wrapped spec carries no `TODO(flawless)`.
+- **Wrapped parts get a profile spec, not a `browser/` spec.** The console-error browser smoke is emitted for `client` components only; parts are covered by `profile/<Name>.profile.spec.ts` through the composed registry entry.
+- **Props are still synthesised.** Wrapping fixes the context, not the fixtures — a part typed through `node_modules` gets `DEFAULTS = {}`. See [mocking data and actions](/docs/recipes/mocking-data-and-actions/) for what is inferable.
+
+## Exit codes
+
+| Situation | Exit |
+|---|---|
+| Generation succeeded — wrapped specs and skips alike | `0` |
+| A selected task failed, or `--run-tests` suites came back red | `1` |
+| Bad flags, no positional under `--no-interactive`, nothing matched | `2` |
+
+A skipped part is **not** a nonzero exit. The skip is intended output: its count lands in `REPORT.md` under `compound-root-wrap`, and that table — not the exit code — is where the adoption cost is read.
+
+## Related
+
+- [Your first suite](/docs/recipes/first-suite/) — start here if nothing is generated yet; this recipe assumes a suite exists.
+- [Colocated specs](/docs/recipes/colocated-specs/) — where to hand-harden a wrapped part once you want real props on it.
+- [Safe regeneration](/docs/recipes/safe-regeneration/) — what a re-run rewrites versus keeps, and why `host/registry.ts` refreshes while `main.tsx` never does.
+- [Triage findings](/docs/recipes/triage-findings/) — burning down the `TODO(flawless)` markers the honest skips leave behind.

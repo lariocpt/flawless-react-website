@@ -1,0 +1,320 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Triage the findings
+description: perf-static, a11y and react-rules end to end — the biome dependency and its two fixes, reports/ JSON, flawless.json sidecars, REPORT.md's accounting, suppression placement, and the unused-suppression trap.
+---
+
+**Goal:** turn a run's findings list into a burn-down — fix what is a real bug, suppress the rest with a reason that both the tool's sweeps and your project's own biome accept as legitimate.
+
+Three of the seven tasks generate nothing runnable. They only report:
+
+| Task | Rules | Where they come from | Needs biome |
+| --- | --- | --- | --- |
+| `perf-static` | rerender / memoisation / hook-dependency / unresolved-prop risks | the tool's own analysis of the parsed tree | no |
+| `a11y` | 28 biome `a11y` rules, filtered to `lint/a11y` | biome, driven by a scratch config | **yes** |
+| `react-rules` | 14 `correctness` + 22 `suspicious` React rules | biome, driven by a scratch config | **yes** |
+
+Select all three and you get one pass over every file behind every analysed tree:
+
+```bash
+flawless-react "src/**/*.tsx" --tasks perf-static,a11y,react-rules --no-interactive
+```
+
+## What you'll see
+
+```text
+src/Card.tsx
+  warn   11:3  perf/hook-extraneous-dependency  Card: useEffect lists "open" in its deps but never reads it — the hook re-fires whenever "open" changes, for no benefit.
+  warn   11:3  perf/hook-extraneous-dependency  Card: useEffect lists "open" in its deps but never reads it — the hook re-fires whenever "open" changes, for no benefit.
+
+src/SetInRender.tsx
+  ERROR  12:3  perf/set-state-in-render  SetInRender calls setCount() unguarded during render — this triggers an infinite re-render loop.
+
+src/A11yOffender.tsx
+  ERROR  11:7  lint/a11y/useAltText  Provide a text alternative through the alt, aria-label or aria-labelledby attribute
+  ERROR  12:7  lint/a11y/useAnchorContent  Provide screen reader accessible content when using `a` elements.
+  ERROR  13:7  lint/a11y/useValidAriaRole  Enforce that elements with ARIA roles must use a valid, non-abstract ARIA role.
+
+src/TagList.tsx
+  warn   13:16  lint/suspicious/noArrayIndexKey  Avoid using the index of an array as key property in an element.
+
+src/Card.tsx
+  ERROR  11:3  lint/correctness/useExhaustiveDependencies  This hook specifies more dependencies than necessary: open.
+
+Summary:
+  [ok] perf-static    files:6 findings:3  static perf analysis: 3 finding(s) across 6 root(s)
+  [ok] a11y           files:2 findings:3  a11y: 3 finding(s) across 6 file(s)
+  [ok] react-rules    files:4 findings:2  react-rules: 2 finding(s) across 6 file(s)
+```
+
+A finding line is `severity  line:column  rule  message`, grouped under its file, printed **relative to the directory you ran in** — paste one into your editor's go-to-line and you land on it. Findings print task by task, so a file appears once per task that found something in it.
+
+Two things there are not mistakes. **`Card.tsx:11:3` appears twice under `perf-static`** because that task walks each analysed *tree*, and `Card` is reachable both as its own root and as a child of `Dashboard` — a shared leaf is reported once per root that reaches it. The biome sweeps dedupe their file list first, so they never do this. And **`Card.tsx:11:3` appears again under `react-rules`**: `perf/hook-extraneous-dependency` and `lint/correctness/useExhaustiveDependencies` found the same defect, and one fix retires both. Two rule ids on one line is corroboration, not two jobs.
+
+## a11y and react-rules need a resolvable biome
+
+Both sweeps shell out to a real `biome` binary, looked for in order: **flawless-react's own `node_modules`** (where the source install's pinned biome lives), then `node_modules/.bin/biome` in the project you are scanning **and every ancestor directory**, then `PATH`. Nothing found, and the task hard-fails:
+
+```text
+Summary:
+  [ok] perf-static    files:6 findings:3  static perf analysis: 3 finding(s) across 6 root(s)
+  [FAIL] a11y           files:0 findings:0  a11y scan failed
+         error: biome executable not found. Looked in this package's node_modules, in /srv/app/node_modules/.bin/biome and every ancestor (so a hoisted workspace root counts), and on PATH.
+  Source install:   bun install
+  Compiled binary:  install biome in the project you are scanning (bun add -d @biomejs/biome) or put it on PATH.
+```
+
+That run exits **1**. A failed task is never quietly counted as clean — `findings:0` on a `[FAIL]` row means *nothing was scanned*, not *nothing was found*.
+
+The two fixes are the two the error names:
+
+- **Use the source package.** `bun add -g flawless-react --registry https://npm.in.drlario.org` brings `@biomejs/biome` along as a real dependency, so all seven tasks work with no further setup — the channel to pick when the target machine has Bun.
+- **Make biome reachable from the scanned project.** `bun add -d @biomejs/biome` there, or a global install on `PATH`. The compiled binary cannot carry biome inside itself, so this is what the standalone artefact needs.
+
+The ancestor walk exists for monorepos: a workspace hoists dev dependencies to the root, so `apps/web/node_modules/.bin/biome` does not exist while `<root>/node_modules/.bin/biome` does. Any React codebase that already lints with biome satisfies the requirement for free.
+
+One consequence before you read a sweep result: **your `biome.json` is bypassed.** The sweep writes a scratch config carrying only its own rule set, so the findings are the tool's curated list, not your project's — deliberate, or the same run would report different things in every repo, and also the root of the suppression trap below.
+
+## Where findings land
+
+Everything below is rewritten on every run. Nothing is appended; each file describes the **last** run.
+
+| Path | Contains |
+| --- | --- |
+| `<outDir>/reports/summary.json` | per-task `ok`, `summary`, output count, finding count |
+| `<outDir>/reports/<Name>.perf-static.json` | that component's `perf-static` findings — one file **per component**, always |
+| `<outDir>/reports/a11y.json`, `react-rules.json` | the sweep aggregates: `filesScanned`, `findingCount`, `findingsByFile` |
+| `<outDir>/reports/<Name>.a11y.json`, `<Name>.react-rules.json` | per-component sweep findings — **only for components that own some** |
+| `<Component>.flawless.json` | a sidecar beside each analysed source |
+| `<outDir>/REPORT.md` | the run's accounting, in prose and tables |
+
+`a11y` and `react-rules` are **sweeps**: one biome process over the deduped file set, one aggregate out. `perf-static` is *per component*. That asymmetry is why a sidecar's `reports.a11y` and `reports.reactRules` point at a single run-level file while `reports.perfStatic` names a component file.
+
+### The sidecar
+
+A `<Component>.flawless.json` is dropped next to each analysed source so findings surface where the code lives:
+
+```json
+{
+  "component": "Card",
+  "file": "Card.tsx",
+  "counts": { "perf-static": 2, "a11y": 0, "react-rules": 1, "total": 3 },
+  "top": [
+    { "rule": "lint/correctness/useExhaustiveDependencies", "severity": "error", "line": 11,
+      "column": 3, "message": "This hook specifies more dependencies than necessary: open." },
+    { "rule": "perf/hook-extraneous-dependency", "severity": "warn", "line": 11, "column": 3,
+      "message": "Card: useEffect lists \"open\" in its deps but never reads it — …" },
+    { "rule": "perf/hook-extraneous-dependency", "severity": "warn", "line": 11, "column": 3,
+      "message": "Card: useEffect lists \"open\" in its deps but never reads it — …" }
+  ],
+  "reports": {
+    "a11y": "../.flawless/reports/a11y.json",
+    "reactRules": "../.flawless/reports/react-rules.json",
+    "perfStatic": "../.flawless/reports/Card.perf-static.json"
+  }
+}
+```
+
+`counts` carries a key for all seven tasks; `top` is the three highest-severity findings, errors first — for `Card`, the biome error plus both copies of the perf-static one. Every path in the file is **relative to the sidecar itself**, so resolve with `path.resolve(dirname(sidecarPath), value)`; they used to be absolute, which put the name of whoever ran the tool into a committed file. `--no-inline-summary` turns sidecars off, rarely needed: a run also writes a `.gitignore` covering `<outDir>/reports/`, the heaps and `*.flawless.json`, and deliberately *not* `REPORT.md`. The ledger is committed and reviewable; the raw JSON is a working file.
+
+### The stale-report trap
+
+Per-component sweep reports are written **only for components that have findings**, and are never deleted. A component you just fixed leaves its old report on disk, so an `ls` over `reports/` counts a finding that no longer exists. Here is the whole failure, live — one file whose index key has just been suppressed (the suppression itself is below, under **Fix or suppress**), re-run:
+
+```bash
+flawless-react "src/TagList.tsx" --tasks react-rules --no-interactive
+```
+
+```text
+Summary:
+  [ok] react-rules    files:1 findings:0  react-rules: 0 finding(s) across 1 file(s)
+```
+
+Zero findings — and `reports/TagList.react-rules.json` is still sitting there, still claiming `noArrayIndexKey` at line 14, a line that no longer exists in that shape. The aggregate is honest (`"findingCount": 0`); the leftover per-component file is a fossil.
+
+**Never count findings by globbing `reports/`.** Trust the task summary line, the `--ci` blob, or REPORT.md.
+
+## REPORT.md's accounting
+
+`REPORT.md` is regenerated every run and describes that run, not the suite on disk. It carries no timestamp and every list is sorted, so a second identical run leaves `git status` empty.
+
+```text
+## Tasks
+
+This run selected 3 of 7 tasks.
+Not run, and therefore not described below: `perf-harness`, `unit-browser`, `e2e`, `load`.
+
+| Task | Files written | Findings | Status | Summary |
+| --- | ---: | ---: | --- | --- |
+| `perf-static` | 6 | 3 | — | static perf analysis: 3 finding(s) across 6 root(s) |
+| `a11y` | 2 | 3 | — | a11y: 3 finding(s) across 6 file(s) |
+| `react-rules` | 4 | 2 | — | react-rules: 2 finding(s) across 6 file(s) |
+
+## Hand-work remaining
+
+Not measured — `unit-browser` and `e2e` did not report a count (not selected, or it failed).
+Absence of a table here is absence of measurement, not absence of debt.
+```
+
+Four things to read out of it:
+
+- **Above the Tasks table, a Components table accounts for every component in exactly one row**, split by render mode (client / rsc / compound-part / document-root / null) and by whether it can mount in the browser host. The totals print as an addition — `6 + 0 = 6` — so they have to add up. A file count is not coverage.
+- **"This run selected 3 of 7 tasks"** names what did *not* run, so a partial run cannot read as a complete one.
+- **The Status column** is where `perf-harness` reports its suite lifecycle (generated / refreshed / kept). Only that task has one; an em dash means "no lifecycle", not "rendering bug".
+- **The hand-work section is always present**, in one of three states: a table of `TODO(flawless)` markers by kind, an explicit "none", or an explicit "not measured". A silently absent table would read as zero debt; on the dogfood app the truth was 181 markers. Only `unit-browser` and `e2e` feed it, so a findings-only run says so rather than implying zero.
+
+Below those, `## Not covered, and why` names each component with no browser profile spec and the reason, and `## Standing gaps` lists properties of the *analysis* that no re-run changes.
+
+## Triage order
+
+Findings are not a queue. Work them in this order:
+
+1. **`perf/set-state-in-render`** (severity `error`) — always real. An unguarded setter call during render is an infinite re-render loop. Fix first, every time.
+2. **Hook-dependency findings.** `perf/hook-extraneous-dependency` usually means the dep is genuinely never read: remove it, or — for a scroll-on-change effect where it *should* matter — make it real by reading it (`if (messages.length === 0) return;`). For `perf/hook-missing-dependency` and biome's `useExhaustiveDependencies`, wrap the function in `useCallback` and add it, rather than suppressing.
+3. **`perf/unstable-child-prop`** — a real win when the receiving child is memoised or heavy, and the message says which: it appends *"child is React.memo-wrapped; this prop defeats memoisation"* when it can prove that. Hoist static objects and arrays to module scope; leave inline arrows on plain DOM elements alone.
+4. **`lint/suspicious/noArrayIndexKey`** — real for editable lists (add a client-side id at creation, key on it, strip it at submit). A reasoned suppression for server-static lists, or where the index genuinely *is* the domain identity.
+5. **`perf/unresolved-prop`, `perf/no-memoisation-with-children`, `perf/missing-memo-leaf`** — advisory scale. `perf/unresolved-prop` is a statement about the *generated tests* ("generated tests will pass undefined"), not about your component. Fix where profiling agrees; do not chase them to zero.
+
+## Fix or suppress
+
+A suppression is an **answer**, not a mute button, so it carries its reason:
+
+```tsx
+// biome-ignore lint/a11y/noLabelWithoutControl: generic wrapper — every call site associates the control
+```
+
+### Placement: biome attaches to the next line's diagnostic
+
+A finding on a multi-line JSX element anchors on the *attribute*, not on the tag. Take a list whose finding lands at `13:16` — the `key={i}` line. Putting the comment above the element does nothing:
+
+```tsx
+{tags.map((tag, i) => (
+  // biome-ignore lint/suspicious/noArrayIndexKey: tags are server-static
+  <li
+    className="tag"
+    key={i}
+  >
+```
+
+```text
+src/TagList.tsx
+  warn   14:16  lint/suspicious/noArrayIndexKey  Avoid using the index of an array as key property in an element.
+```
+
+Still there — one line further down, because the comment pushed it. Move the comment **inside the tag, directly above the attribute the finding anchors on**:
+
+```tsx
+{tags.map((tag, i) => (
+  <li
+    className="tag"
+    // biome-ignore lint/suspicious/noArrayIndexKey: tags are server-static
+    key={i}
+  >
+```
+
+```text
+Summary:
+  [ok] react-rules    files:1 findings:0  react-rules: 0 finding(s) across 1 file(s)
+```
+
+One more mechanical trap: a braced `&#123;/* … */&#125;` comment is valid in JSX *child* position, but an arrow function's parenthesised JSX return is not child position. Writing one there is a syntax error, and the sweep then reports a burst of nonsense diagnostics from the broken parse instead of the rule you meant to silence. Use a plain `//` comment inside the element, as above.
+
+### The cross-config trap
+
+You suppressed the finding, the sweep is green, and then the project's own `biome ci` fails on the comment you just added:
+
+```text
+src/A11yOffender.tsx:13:8 suppressions/unused ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ! Suppression comment has no effect. Remove the suppression or make sure you are suppressing the correct rule.
+
+  > 13 │  {/* biome-ignore lint/a11y/useValidAriaRole: design-system role token, mapped by the CSS layer */}
+```
+
+Nothing is broken. There are simply **two rule sets**: the sweep's scratch config, which enabled `useValidAriaRole`, and your `biome.json`, which did not. A suppression aimed at a rule only one side enables is "unused" on the other.
+
+The tool's side is handled — the sweeps drop every `suppressions/…` diagnostic, because punishing you for answering another task's finding would be absurd. **Your side is not handled, and cannot be.** The clean resolution is to enable that rule in your own `biome.json`:
+
+```json
+{
+  "linter": {
+    "rules": {
+      "a11y": { "useAltText": "error", "useValidAriaRole": "error" }
+    }
+  }
+}
+```
+
+Usually free — the site you just suppressed was the only finding — and now both runs agree the suppression is legitimate, with only the real diagnostics left. The alternative, deleting the comment, hands the finding straight back to the next flawless run.
+
+## Counts, not colours
+
+Track the ledger across runs and explain every delta. `--ci` gives you the numbers without scraping the table:
+
+```bash
+flawless-react "src/**/*.tsx" --tasks perf-static,a11y,react-rules --ci
+```
+
+Under `--ci` the blob is the *only* thing on stdout — the summary table is suppressed, diagnostics go to stderr — so redirect it into `run.json` and query that:
+
+```bash
+jq -r '.results[] | "\(.id): \(.findings|length)"' run.json
+jq -r '.results[].findings[].rule' run.json | sort | uniq -c | sort -rn
+```
+
+```text
+      2 perf/hook-extraneous-dependency
+      1 perf/set-state-in-render
+      1 lint/suspicious/noArrayIndexKey
+      1 lint/correctness/useExhaustiveDependencies
+      1 lint/a11y/useValidAriaRole
+      1 lint/a11y/useAnchorContent
+      1 lint/a11y/useAltText
+```
+
+A burn-down commit should be able to say "a11y 3→0, react-rules 2→1" with one cause per line. New findings after a regeneration are usually the analyser seeing **new components**, not regressions — check the components count in REPORT.md before assuming otherwise.
+
+For a whole-app sweep, `--roots exported` is the mode you want: a shadcn `card.tsx` exports seven components, and `primary` analyses only the main one.
+
+```bash
+flawless-react "src/**/*.tsx" --roots exported --tasks perf-static,a11y,react-rules --ci --exclude "src/generated/**"
+```
+
+## Flags
+
+| Flag | Default | Notes |
+| --- | --- | --- |
+| `--tasks perf-static,a11y,react-rules` | `perf-harness` | Omitting `--tasks` non-interactively runs `perf-harness` alone, not all seven. |
+| `--roots <mode>` | `primary` | `exported` emits one tree per exported component — what a whole-app sweep needs. |
+| `--exclude <glob>` | see CLI | Repeatable, added to the defaults. A non-default `--out` is *not* excluded automatically. |
+| `--no-inline-summary` | off | Skip the `<Component>.flawless.json` sidecars. |
+| `--ci` | off | `--no-interactive --json`. Findings land in the blob; diagnostics still reach stderr. |
+| `--out <dir>` | `./.flawless` | Where `reports/` and `REPORT.md` go. |
+
+## Limits
+
+Honest about what doesn't work yet:
+
+- **A clean `perf-static` report means "nothing this analysis can prove", not "nothing wrong".** There is no type checker behind it. Dependency findings skip hooks whose deps contain member access or spreads, or whose callback is not inline; memoisation findings skip children with spread props or unresolvable identifiers. Everything bails rather than guesses.
+- **Findings have no severity gate.** An `ERROR`-severity finding does not fail the run — the exit code reflects whether tasks *ran*, not what they found. Gate on the `--ci` blob yourself.
+- **`perf-static` double-reports a shared child**, once per root that reaches it; dedupe on `file:line:rule` if you are counting. And per-component sweep reports are never cleaned up, so stale ones survive indefinitely.
+- **The two sweeps ignore your `biome.json` entirely** — rule set, severities, overrides. The rule sets are fixed: no flag adds, drops or re-severities a rule. The only escape hatch is a suppression comment.
+- **A file biome cannot parse is reported, not skipped.** Parse diagnostics ride through the category filter on purpose: a file the analyser could not read is never a pass.
+
+## Exit codes
+
+| Situation | Exit |
+| --- | --- |
+| Every selected task ran, findings or not | `0` |
+| A task failed — biome unresolvable, a sweep threw | `1` |
+| `--run-tests` / `--changed` asked for, suites ran, any red | `1` |
+| A usage error — unknown task id, a glob that matched no files | `2` |
+
+Findings never move the exit code; `[FAIL]` in the summary table does, and so does a red suite run. Under `--ci`, `exitCode` mirrors the process exit code, and a task's `ok: false` plus its `error` string names the row that caused it.
+
+## Related
+
+- [Wire it into CI](/docs/recipes/ci-integration/) — the `--ci` JSON contract, the stdout/stderr split, and why exit 0 does not by itself mean the suites passed.
+- [Regenerate without losing work](/docs/recipes/safe-regeneration/) — when a re-run changed the finding counts and you need to know what it rewrote.
+- [Your first suite](/docs/recipes/first-suite/) — the run that produces these findings in the first place.
+- [Limits & assumptions](/docs/limits/) — the standing gaps in the analysis that no amount of triage closes.

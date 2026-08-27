@@ -1,0 +1,80 @@
+---
+layout: ../../../layouts/DocsLayout.astro
+title: Agent skills
+description: The six Claude Code skills flawless-react ships in .claude/skills — what each one knows, when Claude loads it, how to install them, and why a stale copy is worse than none.
+---
+
+## What these are
+
+A **skill** is a markdown file with a `name` and a `description`. An agent reads the
+descriptions, and when a task matches one it loads that file's full contents into the
+working context. Nothing runs; nothing is fetched. It is documentation with a trigger
+condition attached.
+
+flawless-react ships **six** of them, in `.claude/skills/` in the tool's own repository.
+They exist because the failure modes on this site are not discoverable from the CLI's
+`--help`. An agent that has never seen this documentation will point the tool at a glob,
+get a suite with eighty `TODO(flawless)` markers, and either answer them wrong or delete
+them. The skills carry the parts you cannot infer from the output: which files are
+write-once, why a load run reporting a healthy p95 might have measured a login form, what
+an unused suppression means, and when a marker is the tool being honest rather than a gap
+to paper over.
+
+## The six
+
+| Skill | Loads when | What it carries |
+| --- | --- | --- |
+| `flawless-react` | Adding component, e2e or load tests to a React codebase; a generated suite is red; "scaffold tests for this component" | The umbrella: task selection, Next.js mode, provider wrappers, MSW fixtures from an OpenAPI spec, colocated specs, and pointers into the five below |
+| `flawless-regen` | Before regenerating over an adopted suite, after upgrading the tool, or when a `--changed` run appears to have done nothing | The generated / refreshed / kept lifecycle, what a re-run rewrites versus keeps, `--force`'s merge semantics and the colocated stamp, and proving a run happened from the result JSON rather than stdout |
+| `flawless-unit-browser` | A generated unit or browser spec is red; filling TODOs after a run; a browser spec reports "unknown component" | What the generated specs assert, the provider wrapper and its write-once fixtures, the mock allowlist, answering `test.skip` and `TODO(flawless)` markers, and registering a component in the browser host |
+| `flawless-findings` | Triaging a findings list; deciding fix-versus-suppress; a suppression shows up as unused | perf-static, a11y and react-rules findings, REPORT.md's accounting, the `reports/` JSON and sidecars, and the suppression rules that keep your Biome and the tool's sweeps agreeing |
+| `flawless-e2e-load` | Right before `flawless:e2e` or `flawless:load`; pipes report suspiciously fast p95s; e2e fails at global setup | Seeded-DB prerequisites, the global-setup login, `params.json` ids, `LOAD_BASE`/`LOAD_AUTH`, baselines, and the anti-vacuous probes that decide whether the numbers mean anything |
+| `flawless-api` | Scripting suite generation, building a custom report, or embedding the tool in another workflow | `runFlawless`/`runCore` options and results, the exit-code and error contracts, the `analyse()`/`ComponentTree` surface, the tasks registry, and the `--ci` JSON contract |
+
+Each links onward to the others, so loading one usually pulls the right neighbour when the
+task turns out to be somewhere else.
+
+## Installing them
+
+They are plain directories. Copy them out of the tool's repository into either scope:
+
+```bash
+# Project scope — checked in, shared with everyone working on the repo
+mkdir -p .claude/skills
+cp -R /path/to/flawless-react/.claude/skills/flawless-* .claude/skills/
+
+# User scope — available in every project on this machine
+cp -R /path/to/flawless-react/.claude/skills/flawless-* ~/.claude/skills/
+```
+
+Project scope wins when both exist, which is what you want: a repo that has adopted a suite
+can pin the guidance its contributors get.
+
+> **A stale copy is worse than none.** The repository copy is the source of truth, and it
+> moves when the tool moves. A user-level copy that still describes a workflow the tool has
+> since removed will be loaded with the same confidence as a current one, and it will be
+> wrong in exactly the situation you reached for it. Re-copy after upgrading, and if you
+> keep both scopes, diff them.
+
+## Why the tool bothers
+
+The suite flawless-react writes is deliberately not clever. It refuses to guess a fixture
+it cannot derive, and it leaves a marker instead — which means the generated suite arrives
+with real work attached, and the work is judgement, not typing. That is agent-shaped:
+answering a `TODO(flawless)` needs the component's actual data, the project's conventions
+and a decision about what the test should prove.
+
+These skills are how that judgement gets applied consistently rather than re-derived, badly,
+once per session. If you drive the tool with [Claude Code](https://claude.com/claude-code),
+installing them is the difference between an agent that regenerates over your hand-hardened
+specs and one that knows the stamp exists.
+
+None of this is required. The tool is a CLI and the suite is ordinary test code — you can
+read these docs and skip the skills entirely.
+
+## Related
+
+- [Suite generation and regeneration](/docs/agent-skills/suite-generation/) — `flawless-react` and `flawless-regen` in full
+- [Specs and findings](/docs/agent-skills/specs-and-findings/) — `flawless-unit-browser` and `flawless-findings`
+- [E2E, load and the API](/docs/agent-skills/e2e-load-and-api/) — `flawless-e2e-load` and `flawless-api`
+- [Recipes](/docs/recipes/) — the same workflows written for a human reader
