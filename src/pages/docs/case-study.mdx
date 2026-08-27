@@ -422,8 +422,18 @@ the numbers said, fix the tool, repeat.
 | before | 67.0% | 50.4% | 77.7% | 60.6% | 39.2% | 40.7% |
 | after | **74.9%** | **56.2%** | **79.4%** | **66.2%** | **48.1%** | **56.0%** |
 
-174 web suites green (515 pass / 14 skip). 31 mobile suites green (138 pass / 24
+Over **component files only** — `.tsx` under `src/` for web, `.tsx` under the app
+for mobile — which is the same basis the round-4 figure above uses. Counting every
+instrumented file, mobile is 63.1% / 44.8% / 53.2%: the difference is `lib/api.ts`
+and its siblings, which the generated unit layer mocks rather than exercises. Both
+numbers are true; they answer different questions, and a coverage figure with no
+stated denominator answers neither.
+
+174 web suites green (514 pass / 15 skip). 31 mobile suites green (138 pass / 24
 skip, up from 96 / 64).
+
+Two of those web skips are the RSC fixture-missing escape, which fires at run time
+rather than emit time — so that split can move by one without anything changing.
 
 ### The finding all six rounds converged on
 
