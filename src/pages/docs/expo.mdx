@@ -79,6 +79,36 @@ That is the React Native analogue of asserting a link's `href`.
 
 A module that resolves project-locally and performs `fetch()` is mocked. Before this existed, the fixture suite made live HTTP calls and crashed a jest worker against a real server.
 
+Each stub's shape comes from the mocked function's own `Promise<T>` annotation, resolved through workspace barrels and zod schemas. `Promise<void>` mocks to `undefined` and carries no marker — that *is* its realistic return value. Only a shape that could not be resolved falls back to `{}`, and only that one keeps a `TODO(flawless)`.
+
+The fallback is not cosmetic. `const { items } = await listBuildings()` against `{}` binds `items` to undefined, `setBuildings(undefined)` follows, and the next `buildings.length` throws into the app's own error boundary — so the screen renders "Something went wrong" and the failure looks like the component rather than the fixture.
+
+### The loaded state gets its own test, where that is fair
+
+The default mock returns empty collections, so every assertion derived from the initial render holds — and nothing exercises the row markup. A separate test re-mocks **one** function to return a single row and asserts a synthesised witness appears.
+
+It is only emitted where three things hold, each read off the component's own AST:
+
+1. **Mounting calls the function** — reachable from a `useEffect` / `useFocusEffect` callback or the component body, and not inside a branch, a `catch`, or a JSX event handler. A mutation called from a submit handler is not a loader, and a call behind `if (isTrustee)` does not run.
+2. **What it returns is rendered as a list** — the result reaches a `useState` setter whose state variable is mapped in JSX or handed to a list as `data`. A collection the screen reads to decide a permission flag changes a boolean, not the screen.
+3. **The row has a witness** — a string field *this* list's row renders as a JSX child. Not an attribute value: `key={r.id}` is never displayed, and a witness taken from it would be a string the screen does not show.
+
+Where any of the three fails, the emitter writes a `test.skip` naming which one. On the dogfood app 14 of 31 screens qualify, and all 14 pass.
+
+This shipped as a blanket skip until it was measured. The comment on it blamed "an external store the harness does not reach" — a hypothesis written as a finding. Enabling all 21 recipes live gave 11 failures with three causes, every one of them visible in the AST.
+
+### `router.back()` gets a history entry
+
+`renderRouter` mounts one screen at one URL with nothing behind it, so `GO_BACK` dispatches into an empty stack and fails with *The action 'GO_BACK' was not handled by any navigator*. A route spec pushes its own URL once before the press:
+
+```tsx
+mount();
+testRouter.push(INITIAL_URL);
+fireEvent(screen.getAllByLabelText("Go back")[0], "press");
+```
+
+A component spec has no router to push into, so the handler is a skip that says so. Twelve real screens failed this way the moment their back buttons became addressable — a missing precondition being reported as a defect.
+
 ## Skips name the fix
 
 There is deliberately **no last-resort locator**. A control with no `testID`, no `accessibilityLabel`, no `accessibilityRole` and no text under it becomes a `test.skip` carrying the reason and the remedy:
@@ -90,6 +120,8 @@ test.skip("onPress on <Pressable> — <Pressable> renders only an icon, so no
 ```
 
 The same absence is what makes the control silent to a screen reader, so one `accessibilityLabel` retires both the skip and the accessibility gap. Answer a skip by adding the label to the app, not by loosening the ladder.
+
+That is not a rhetorical pairing — it was measured. Adding 48 `accessibilityLabel` and 28 `accessibilityRole` props to the dogfood app, over exactly the shapes the skips named, took its generated suite from 96 to 124 passing tests and 64 to 36 skips, and function coverage from 40.7% to 44.6%. The controls had been unreachable to VoiceOver and TalkBack the whole time.
 
 ## Limits worth knowing
 

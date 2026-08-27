@@ -406,3 +406,117 @@ All four were fixed inside the round, each with a control proving the new
 guard can fail. Fixing the fourth introduced a scoping bug in the emitted
 spec, which the execution tests caught immediately: that is what "verified by
 executing the artefact, never by parsing it" buys.
+
+
+## Update: six dogfood rounds, on two platforms (late August 2026)
+
+The same web app, plus the monorepo's **Expo mobile app** for the first time —
+31 expo-router screens that had **zero component tests**, because the project's
+own testing notes said screens were not testable.
+
+Six full cycles: regenerate, run under the real runners, take coverage, read what
+the numbers said, fix the tool, repeat.
+
+|  | web lines | web branches | web funcs | mobile lines | mobile branches | mobile funcs |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| before | 67.0% | 50.4% | 77.7% | 60.6% | 39.2% | 40.7% |
+| after | **74.9%** | **56.2%** | **79.4%** | **66.2%** | **48.1%** | **56.0%** |
+
+174 web suites green (515 pass / 14 skip). 31 mobile suites green (138 pass / 24
+skip, up from 96 / 64).
+
+### The finding all six rounds converged on
+
+Every plateau was a fixture the component's own code rejects — never a missing
+test.
+
+Web coverage sat at **67.0% lines and 50.4% branches, identical to the digit,
+across five consecutive rounds.** That should have been read as a signal much
+earlier than it was. The cause: 22 of 32 page specs were passing having rendered
+nothing.
+
+A page looks up the viewer's membership for the building in the URL:
+
+```tsx
+const { id } = await params;
+const memberships = await listMembershipsForUser(db, user.id);
+const mine = memberships.find((m) => m.building_id === id && m.status === "active");
+if (!mine) notFound();
+```
+
+The synthesised row carried `status: "flawless-status"` and the params fixture was
+`{ id: "" }`. So `find` returned undefined, the page called `notFound()`, the
+generated spec recognised that as a declared guard path — which it correctly
+is — and reported a pass. On one page, 117 of its 158 lines never ran.
+
+Every individual step was right. The composition was a green test over an empty
+render. It is the same class of defect this tool exists to refuse, living on the
+**fixture** side rather than the assertion side, where no probe reached.
+
+### What closed it
+
+Two rules, both reading the component's own source rather than inventing
+anything:
+
+- A field compared with `===` to a **literal** takes that literal. `m.status ===
+  "active"` yields `status: "active"`. `!==` is not used — it says what a value
+  must *not* be, which does not pick one out.
+- A field compared to one of the component's **props** takes that prop's value,
+  read from the same fixture the spec's `DEFAULTS` carries, so the two agree by
+  construction rather than by both happening to spell `flawless-id`.
+
+And a Next page's `params` never carries an empty segment. An empty string is a
+perfectly good default for a caption; Next does not match a dynamic route against
+one, so `{ params: { id: "" } }` is a request that cannot happen.
+
+Guard exits went from **22 of 32 to 8 of 32**. The `notFound()` path keeps its own
+test, which mocks the lookup to return nothing — the coverage is additive, not
+traded.
+
+### Two things the project had written down that were wrong
+
+Both had been recorded as deliberate decisions, with reasons, and both survived
+because nothing had executed them.
+
+**"A partial fixture is worse than none, so heritage bails."** The reasoning is
+right. The bail was wider than it: a base that resolves is not partial. Merging
+bases (own members last, and still bailing whole if *any* base fails) took the
+mobile app from seven uninferred API shapes to zero — and one of those seven was
+poisoning an entire screen, because `const [{ poll: p }] = await
+Promise.all([getPoll(…), …])` binds `p` to `undefined` and the next member read
+throws into the app's own `catch`, so the error state rendered while the test
+looked for a row.
+
+**"Those screens hold their rows in an external store the harness does not
+reach."** That was the comment on a test that shipped permanently skipped. It was
+a hypothesis written as a finding. Enabling all 21 recipes live produced 11
+failures with three distinct causes, every one of them visible in the AST: a
+mutation called from a submit handler, a call behind `if (isTrustee)`, and a
+collection read to decide a permission boolean. Fourteen screens qualify under
+the corrected rules and all fourteen pass.
+
+### The accessibility half
+
+The mobile app's unaddressable controls and its accessibility gaps turned out to
+be the same list. A `<Pressable>` with no `testID`, no `accessibilityLabel` and no
+text under it is unfindable to a test for exactly the reason it is silent to a
+screen reader.
+
+48 `accessibilityLabel` and 28 `accessibilityRole` props went into the app — 20
+text inputs whose visible label was never attached to the control, and 28
+icon-only back buttons. The generated suite went from 96 to 124 passing tests and
+64 to 36 skips.
+
+The coverage is the consequence. The controls were unusable with VoiceOver and
+TalkBack either way, and no test run was needed to make that true.
+
+### What was deliberately not fixed
+
+Web branch coverage is 56.2% against 74.9% lines, and 8 of 32 page specs still
+exit through a guard. The remaining gap is that a fixture makes a predicate true,
+so `userIsTrustee ? A : B` only ever renders `A` — mocking to `{}` and mocking to
+the annotation's `true` take the same branch.
+
+Covering the other side needs a second mount with the predicate inverted, plus a
+rule for which predicates are safe to invert. That is a design decision rather
+than a fixture fix, and it is on the backlog rather than half-done.
