@@ -433,7 +433,14 @@ stated denominator answers neither.
 skip, up from 96 / 64).
 
 Two of those web skips are the RSC fixture-missing escape, which fires at run time
-rather than emit time — so that split can move by one without anything changing.
+rather than emit time: it is what a spec does when a data mock's shape could not be
+inferred and the component then crashes on it.
+
+That is a **cause**, not noise. An earlier version of this page said the split
+"can move by one without anything changing" — three observations with no mechanism
+behind them, which is a guess about flakiness. It tracks how many specs take that
+escape, which tracks how many mock shapes resolve, and the fix below moved it by
+exactly one on purpose.
 
 ### The finding all six rounds converged on
 
@@ -530,3 +537,54 @@ the annotation's `true` take the same branch.
 Covering the other side needs a second mount with the predicate inverted, plus a
 rule for which predicates are safe to invert. That is a design decision rather
 than a fixture fix, and it is on the backlog rather than half-done.
+
+
+
+## After the rounds: two defects wearing one symptom
+
+The rounds closed with a ranked list of what was left. The smallest item on it —
+one function, five consumers — turned out to be hiding a second defect, and the
+pair is a fair illustration of how this codebase gets things wrong.
+
+`exportedFunctions` skipped any variable declaration whose initializer is a call,
+so the standard Next.js data-access idiom was invisible to every consumer:
+
+```ts
+export const getCurrentUser = cache(async (): Promise<User> => …)
+```
+
+The dogfood app's `lib/dal.ts` uses it three times. Downstream that is a `{}` mock
+and a "could not be inferred" marker on a function whose return type is written
+two characters away.
+
+Fixing it made those three exports **visible and still unresolvable**. `User`
+reaches them through `import type { User } …; export type { User };`, and the
+re-export chase looked only for a *local declaration* of that name, found none,
+and stopped. Two independent defects, one symptom — separated with a three-file
+probe before either was touched, so each could be shown to move its own case and
+nothing else.
+
+| | before | after the first fix | after both |
+| --- | :---: | :---: | :---: |
+| a plain annotated export | ✅ | ✅ | ✅ |
+| the same export wrapped in `cache()` | ❌ | ✅ | ✅ |
+| a type reached through `export type { X }` | ❌ | ❌ | ✅ |
+
+```
+RSC fixture-missing skips  2 → 1        tests  514/15 → 515/14
+lines  74.9% → 75.0%   branches  56.2% → 56.4%   functions  79.4% → 79.8%
+```
+
+Small, and the mechanism is the point: an enriched dependency drops the skip
+escape, so a page's whole render test stops being skipped and starts running. The
+marker count — 104 to 101 — is the least interesting number here.
+
+The wrapper list stays **closed**: `cache` and `unstable_cache`, which hand back
+the same call signature. Not "any call with one function argument", because the
+original skip's reasoning is real for most wrappers —
+`withPagination(async (): Promise<Row[]> => …)` may well return `Promise<Page<Row>>`,
+and unwrapping it hands the generator a shape the function never produces.
+
+None of it moved the mobile app, whose API client uses plain `export async
+function` and direct type imports. A fix that helps one target and not the other
+is worth saying so about.
