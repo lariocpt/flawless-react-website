@@ -24,23 +24,27 @@ Not a Next.js variant. Four facts drive almost everything below:
 - **There is no `<form>`.**
 - **`className` is compiled away by babel** before anything can observe it.
 
-## Not every task is ported, and the tool says which
+## Every task runs, or refuses by a measured decision
+
+The Expo mode was built one task at a time and is now complete: six of the seven tasks run under `--expo`, and the seventh refuses for a reason that was measured, not deferred.
 
 | task | under `--expo` |
 |---|---|
 | `unit-browser` | **runs** — jest-expo + @testing-library/react-native |
 | `perf-static` | **runs** |
 | `react-rules` | **runs** |
-| `perf-harness`, `a11y`, `e2e`, `load` | **refuse**, naming the task and the wave that will implement it |
+| `a11y` | **runs** — the native accessibility analyser (six rules over the parsed tree, not biome) |
+| `e2e` | **runs** — expo-router route specs against `expo start --web` |
+| `load` | **runs** — API-only crust pipes, harvested through the app's fetch wrapper |
+| `perf-harness` | **refuses** — measured-and-declined: a browser host cannot mount a route screen, and nearly every component in a real Expo app is one |
 
 A refusal is a failed `TaskResult`, not a thrown error, so it lands in `results[]`, in the `--ci` blob and in `REPORT.md` where a machine can read it. A mixed selection still runs what it can.
 
-**Refusing beats emitting.** The DOM suite pointed at React Native produces specs that run, pass, and touch nothing: `container.querySelector("Pressable")` matches no element, and `getByRole("button")` finds nothing. A green suite that tested nothing is the one outcome this tool must never produce.
+**Refusing beats emitting.** The DOM suite pointed at React Native produces specs that run, pass, and touch nothing: `container.querySelector("Pressable")` matches no element, and `getByRole("button")` finds nothing. A green suite that tested nothing is the one outcome this tool must never produce — which is exactly why three tasks needed a *different engine* rather than a refusal, and got one:
 
-Two of those refusals are load-bearing rather than temporary, and both were measured on a real Expo app before the mode was written:
-
-- **`a11y` would be vacuously green.** Its 29 rules are HTML/ARIA rules. Over 31 React Native files carrying 82 unlabelled `<Pressable>` elements — with no `testID`, `accessibilityLabel` or `accessibilityRole` between them — they return **zero findings**, while the same configuration finds 3 of 3 on the tool's own offender fixture. A clean report meaning "these rules do not apply" is worse than no report.
-- **The React Compiler changes what `perf-static` means.** On a project with `experiments.reactCompiler: true`, **136 of 168 findings** were the three memoisation rules — work the compiler already performs. `--expo` reads the flag today; acting on it is a later wave.
+- **`a11y` needed a native engine, not the biome sweep.** Biome's 29 rules are HTML/ARIA rules. Over 31 React Native files carrying 82 unlabelled `<Pressable>` elements they return **zero findings**, while the same configuration finds 3 of 3 on the tool's own DOM offender fixture. So `--expo --tasks a11y` runs the tool's own analyser instead — see [the native a11y analyser](#the-native-a11y-analyser) below.
+- **The React Compiler changes what `perf-static` means.** On a project with `experiments.reactCompiler: true`, **136 of 168 findings** were the three memoisation rules — work the compiler already performs. `--expo` reads the flag and surfaces those findings for you to weigh; the tool deliberately does not suppress them for you.
+- **`perf-harness` is the one honest refusal.** Its browser host mounts a component by bundling it and calling `createRoot` — but an expo-router route screen needs a navigator (`useNavigation`, `useLocalSearchParams`, `useFocusEffect`), and on a real Expo app nearly every component is a route screen. Measured ceiling on the dogfood app: ~0 of 32 mountable. Rather than emit specs that redden healthy screens, it refuses and says so. (A Metro-served perf lane that mounts the *real* app is mapped as a probe-gated option, but stays declined until a probe clears — the React Compiler nulls its one honest signal.)
 
 ## The native unit plane
 
@@ -122,6 +126,43 @@ test.skip("onPress on <Pressable> — <Pressable> renders only an icon, so no
 The same absence is what makes the control silent to a screen reader, so one `accessibilityLabel` retires both the skip and the accessibility gap. Answer a skip by adding the label to the app, not by loosening the ladder.
 
 That is not a rhetorical pairing — it was measured. Adding 48 `accessibilityLabel` and 28 `accessibilityRole` props to the dogfood app, over exactly the shapes the skips named, took its generated suite from 96 to 124 passing tests and 64 to 36 skips, and function coverage from 40.7% to 44.6%. The controls had been unreachable to VoiceOver and TalkBack the whole time.
+
+## The native a11y analyser
+
+`--expo --tasks a11y` runs the tool's own analyser instead of biome — six rules judged from the same parsed tree the rest of the analysis uses, because biome's HTML/ARIA rules say nothing about React Native primitives:
+
+| rule | what it catches |
+|---|---|
+| `a11y/unnamed-control` | a press target that provably renders no text and has no `accessibilityLabel` — silent to a screen reader and unaddressable to a spec |
+| `a11y/missing-role` | a press target with no `accessibilityRole` — RN has no implicit roles, so its text is announced without "button" |
+| `a11y/textinput-unlabelled` | a `TextInput` whose only name is a placeholder, which vanishes on input |
+| `a11y/icon-unhidden` | a free-standing vector icon exposed to the a11y tree with nothing to announce (warn) |
+| `a11y/label-text-mismatch` | an `accessibilityLabel` that does not contain the visible text — voice-control users say what they see (WCAG 2.5.3) |
+| `a11y/invalid-role` | a role value RN does not recognise — the union widens with `\| string`, so tsc never catches the typo |
+
+Two properties matter more than the rule list. **The denominator**: the summary and `reports/a11y.json` always say how many press targets, text inputs and icons were examined, so a zero can never be confused with "the rules do not apply". **Zero false positives over completeness**: a dynamic `accessibilityLabel={t("back")}` is recorded as *presence* and never flagged, and a pressable rendering `{item.name}` is never called unnamed because it does announce at runtime.
+
+Measured on the dogfood app: 85 findings across 32 files at baseline (82 press targets / 49 inputs / 40 icons examined), remediated to 0 — and the same absence that made each control silent to a screen reader made it unaddressable to a spec, so answering the a11y findings took the unit plane's locator addressability from 46.8% to ~100%.
+
+## Route e2e against Expo web
+
+`--expo --tasks e2e` emits one Playwright spec per expo-router route, run against `expo start --web`. Metro under SDK 54's static output serves per-route rendered HTML with **real status semantics** (an unknown path answers 404), all measured before the wave was built.
+
+The machinery is the Next.js flavour's — the same `params.json` id fixture (expo-router's `[param]` templates are byte-compatible), the same write-once `global-setup.ts`, the same `GET <route>` titles for `--changed` narrowing — plus three Expo facts:
+
+- **Auth is a cookie on the API origin.** On web the app calls its API with `credentials: "include"`, so the setup stub's login persists `storageState`. No token injection.
+- **An auth wall has two faces, and the specs catch both.** A client redirect fails the landing assertion; a wall rendered *in place* keeps the URL and answers 200 — but the API's 401s land in the console assertion, and a **copy witness** (a third test asserting the screen's longest analysis-proven literal is visible) fails on any screen that is not the one the analysis described.
+- **Two servers.** The config boots Metro; your API is a prerequisite it cannot start. Set `EXPO_PUBLIC_API_URL` first — Metro inlines it, and an unset value falls back to whatever the source hardcodes.
+
+Run live on the dogfood app: 29 route specs, 67 pass / 1 skip / 0 fail.
+
+## API-only load pipes
+
+`--expo --tasks load` emits crust load pipes for the GET endpoints the screens actually hit. An Expo app has no server-rendered page routes, so the pipes are API endpoints only — and finding them is the wave's new capability.
+
+A React Native screen never writes `fetch()`: it calls a named api function (`listBuildings()`) whose body calls a module-local wrapper with a literal path (`apiFetch("/api/buildings")`). So the direct-`fetch` harvest finds nothing — the endpoint lives two hops from the screen. The load harvest reads exactly that chain: the screen must *call* the imported name, which must resolve (through barrels) to a function calling a **proven** fetch wrapper (its single `fetch()` addresses one of its own parameters — trusted for what it does, never for being named `apiFetch`) with a literal or template path. A store-mediated call or a non-literal URL is dropped rather than guessed.
+
+The pipe/params/env machinery is reused verbatim, with one Expo difference: the write-once `routes.setup.ts` fails on a **401** (an API endpoint keeps its URL on a dead session, so the Next flavour's redirect probe would pass vacuously). Measured on the dogfood app: 30 GET endpoints across 28 of 31 screens, run live at 29 pass / 0 fail, p95 30–36ms.
 
 ## Limits worth knowing
 
