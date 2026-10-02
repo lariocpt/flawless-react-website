@@ -21,7 +21,7 @@ Then generate:
 bunx flawless-react "src/app/**/page.tsx" --nextjs . --tasks e2e --no-interactive
 ```
 
-Every analysed entry that resolves to an app-router `page.tsx` becomes one spec; everything else in the glob is ignored by this task, so `"src/**/*.tsx"` is fine too — and is what you want when `e2e` shares a run with `unit-browser`. Both ways of getting nothing say so: without `--nextjs` the task fails with `not a Next.js run`, and a glob that matched no page reports `no analysed entry is an app-router page.tsx — config emitted, no specs`.
+Every analysed entry that resolves to an app-router `page.tsx` becomes one spec; everything else in the glob is ignored by this task, so `"src/**/*.tsx"` is fine too — and is what you want when `e2e` shares a run with `unit-browser`. Without `--nextjs` the task fails with `not a Next.js run`. If the analysed set contains no page files (e.g. the default `components/**/*.tsx` entry), the task falls back to discovering `**/page.{tsx,jsx,ts,js}` under the router root and creates minimal trees so specs are still emitted for every app-router route.
 
 ### Why the real app, and not MSW
 
