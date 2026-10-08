@@ -180,6 +180,65 @@ Both paths run **only** for deps whose usage came up empty. A dep the component 
 
 One channel is excluded outright: a dep declared in a `"use server"` module is never enriched here, because server-action modules go through their own mock. Enriching one would suppress the skip escape below for a fixture that never gets emitted, turning an honest skip into a red that blames your app.
 
+## A mock covers the module, not the import
+
+A `vi.mock` factory serves **every importer** of that module, not the one spec that
+triggered it. So the factory must export every name *any* file in the analysed set imports
+from the module — not just the one the current spec uses. The mock surface is therefore
+merged per specifier across the whole spec group before a factory is emitted, and each
+binding is keyed on the **module-side export name**, not the local alias:
+
+```ts
+// some spec imports { getCase as fetchCase } from "@/lib/data"
+vi.mock("@/lib/data", async () => ({ fetchCase: ... }))   // wrong — the module exports getCase
+vi.mock("@/lib/data", async () => ({ getCase: ... }))     // right — importers rename locally
+```
+
+Names the tree walk picked up below the entry (a helper two levels down imports the same
+module) join that surface too — with one asymmetry. A graph-only name is **covered** by a
+factory that exists anyway, but it never **forces** a module to be mocked: a `lib/utils`
+that exports a pure `cn()` for the unit and a `timeAgo()` a deep child imports stays
+unmocked, because mocking a pure module only ever breaks things (and a promise returned to
+a JSX child silently suspends the render — React 19 shows an empty container, not an error).
+When a graph-only helper does ride along in a forced factory and nothing evidences its
+shape, it is mocked **sync** — `vi.fn(() => ({}))`. `await` on that still resolves; a
+promise handed to JSX does not, and fails silently.
+
+Two more rules decide what never appears in a mock at all:
+
+- **Pure local modules are left real.** A module whose exports are all data or pure
+  functions is never mocked — its real code is faster to trust than a fixture.
+- **Library allowlists.** `next/navigation`, `next/headers`, `next/cache`, `next/font/*`,
+  `next/link` (passed through, plus `useLinkStatus`), `swr`, and `server-only` get
+  purpose-built deterministic mocks or passthroughs wherever they appear — a component
+  importing an UPPER-CASE default that reads as a component (`<Toaster />`) gets a JSX-capable
+  one. `next/og` is excluded from the perf host entirely: it wants native font binaries.
+
+## Where the fixture values come from
+
+Beyond the declaration paths above, a value can be earned from the tree itself:
+
+- **Sibling and descendant inheritance.** A data dep whose shape one same-file sibling or
+  one analysed descendant already proved reuses that fixture instead of guessing again.
+- **The member-chain floor.** Usage like `order.customer.address.city` with no annotation
+  still proves a *shape*: the mock grows a nested object, with leaves ranked
+  `object > Date > array > string` by what the chain does with them.
+- **Named member types, resolved one hop.** If the prop is typed against an `interface`
+  exported from a module the file imports, the fixture is built from the interface — all
+  arms of a literal union kept literal, all-or-nothing: half a fixture is worse than none,
+  because half a fixture *passes*. A `Date` member carries a sentinel string that reads
+  as a date to any formatter.
+- **The child bridge.** When a parent passes its awaited value to a typed child
+  (`<DataTable rows={rows} />`), the child's prop type is evidence about the dep. Defaults
+  bridge upward from typed children, fixture shapes bridge from the child's own data deps,
+  and a literal-union prop and a literal-union member must agree *literally* — one of
+  `"open" | "closed"` paired with `"open"` is checked, not coerced.
+
+The test for all of it is the same one the markers enforce: every value is either evidence
+(the annotation said it, the OpenAPI example said it, a sibling proved it) or an admitted
+`{}` with a `TODO(flawless)`. A guess wearing a fixture's clothes is the failure mode this
+whole machinery exists to prevent.
+
 ## Provenance is written into the file
 
 Every inferred fixture says where it came from, in one of exactly two forms:

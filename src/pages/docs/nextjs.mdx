@@ -167,7 +167,9 @@ my-next-app/
 ├── .gitignore            # appended: generated output paths
 └── flawless/
     ├── swagger.json      # regenerated every run
-    ├── setup.ts          # Vitest setup; starts the MSW server
+    ├── package.json      # suite-local deps — react pinned to the app's exact version
+    ├── pnpm-workspace.yaml  # write-once — pnpm 10+ build-script allowance for esbuild
+    ├── setup.ts          # Vitest setup; jest-dom, jsdom gaps, native-import stubs, MSW where fetched
     ├── mocks/
     │   ├── handlers.ts   # yours to edit; never overwritten
     │   ├── browser.ts
@@ -180,11 +182,23 @@ my-next-app/
     └── reports/
 ```
 
-There is no `flawless/package.json` and no `flawless/tsconfig.json`. That is the deliberate difference from standalone mode: the suite runs on your project's dependencies and your project's TypeScript config.
+With `unit-browser` in the run, the suite installs its own dependencies from
+`flawless/package.json` — a self-contained `node_modules` that never disturbs the app's —
+and `flawless/tsconfig.json` type-checks the suite in isolation. The dependency that makes
+the suite-local install necessary rather than merely tidy is React itself: the suite pins
+`react` and `react-dom` to the app's *exact* resolved version, because two React copies in
+one tree break hooks, and an app's caret range resolves to whatever is newest on the day you
+install. A pnpm repo also gets a write-once `flawless/pnpm-workspace.yaml` carrying the
+esbuild build-script allowance — without it pnpm 10+ refuses esbuild's postinstall, which
+*is* its binary, and vitest dies at startup. A run of `perf-harness` alone skips the
+suite-local install: the perf suite then runs on the app's own `@playwright/test`.
 
 ### `package.json`
 
-The dependencies the generated suite needs are merged into your project's `devDependencies`, and a script is added for each plane the run selected — up to six: `flawless:unit`, `flawless:perf`, `flawless:browser`, `flawless:e2e`, `flawless:load`, `flawless:report` — so you can run each layer from the project root:
+The dependencies the generated suite needs are added to your project's `devDependencies`
+(only where absent — your version ranges are yours), and a script is added for each plane the
+run selected — up to six: `flawless:unit`, `flawless:perf`, `flawless:browser`, `flawless:e2e`,
+`flawless:load`, `flawless:report` — so you can run each layer from the project root:
 
 ```json
 {
