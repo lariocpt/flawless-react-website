@@ -25,7 +25,7 @@ The default output directory is `./.flawless`; `--out <dir>` moves it.
 ├── tsconfig.json
 ├── playwright.config.ts      # perf suite — auto-boots host/server.ts (and mock/server.ts with --api)
 ├── vitest.config.mts         # unit-browser
-├── setup.ts                  # unit-browser — jest-dom matchers
+├── setup.ts                  # unit-browser — jest-dom, native-import stubs, jsdom gaps, optional MSW
 ├── budgets.json              # per-component mount/update budgets (warn-only by default)
 ├── host/
 │   ├── server.ts             # Bun.serve over a Bun.build bundle of your component(s)
@@ -507,9 +507,28 @@ decides which one runs and the file you edit may not be the file that ran.
 
 ## setup.ts
 
-One line by default: it imports `@testing-library/jest-dom/vitest` so the matchers are available in
-every unit test. In Next.js mode it also starts an MSW node server around the suite —
-`listen` before all tests, `resetHandlers` after each, `close` at the end — using the same handlers
+The unit plane's runtime floor — more than the one import of `@testing-library/jest-dom/vitest`
+it starts with. Three more things live here, and each answers a class of failure that would
+otherwise surface as a mysterious red suite:
+
+- **Native-import interception.** The runner pulls `node_modules` packages in through plain
+  `import()`, where `vi.mock` cannot reach. A Node ESM resolve hook (installed synchronously
+  via `module.registerHooks` when the runtime has it) rewrites two classes of specifier to
+  inert stubs shipped as data URLs: `next/font/*` — font-loader wrappers execute at module
+  scope and die on collection — and `next/navigation` (with or without the `.js` extension
+  bundled output uses), so router-wrapper libraries never mount the real router and throw
+  *"expected app router to be mounted"*.
+- **jsdom gaps**, each assigned only where absent: `matchMedia` (next-themes), `ResizeObserver`
+  and `IntersectionObserver` (virtualisers, lazy mounts), `scrollIntoView`/`scrollTo`, and
+  `getAnimations` (framer-motion-style cleanup). Plus an inert-but-complete Web Audio graph:
+  jsdom ships no `AudioContext`, and a "play a sound on click" hook that constructs one kills
+  the whole run rc=1 — an unhandled rejection — even when every test passed.
+- **Auth-library shims.** When any analysed component imports an auth library, its deterministic
+  `vi.mock` rides here rather than in every spec — the shim has to be in place before module
+  bodies run, and per-spec placement races the import graph.
+
+With `--nextjs` and fetch-intercepted routes, this is also where the MSW node server lives:
+`listen` before all tests, `resetHandlers` after each, `close` at the end — the same handlers
 the browser layer uses, so both layers agree on what `/api/*` returns.
 
 ## unit/&lt;Component&gt;.test.tsx
