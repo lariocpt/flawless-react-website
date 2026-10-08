@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Agent skills
-description: The six Claude Code skills flawless-react ships in .claude/skills — what each one knows, when Claude loads it, how to install them, and why a stale copy is worse than none.
+description: The seven Claude Code skills flawless-react ships in .claude/skills — what each one knows, when Claude loads it, how to install them, and why a stale copy is worse than none.
 ---
 
 ## What these are
@@ -11,7 +11,7 @@ descriptions, and when a task matches one it loads that file's full contents int
 working context. Nothing runs; nothing is fetched. It is documentation with a trigger
 condition attached.
 
-flawless-react ships **six** of them, in `.claude/skills/` in the tool's own repository.
+flawless-react ships **seven** of them, in `.claude/skills/` in the tool's own repository.
 They exist because the failure modes on this site are not discoverable from the CLI's
 `--help`. An agent that has never seen this documentation will point the tool at a glob,
 get a suite with eighty `TODO(flawless)` markers, and either answer them wrong or delete
@@ -20,15 +20,16 @@ write-once, why a load run reporting a healthy p95 might have measured a login f
 an unused suppression means, and when a marker is the tool being honest rather than a gap
 to paper over.
 
-## The six
+## The seven
 
 | Skill | Loads when | What it carries |
 | --- | --- | --- |
-| `flawless-react` | Adding component, e2e or load tests to a React codebase; a generated suite is red; "scaffold tests for this component" | The umbrella: task selection, Next.js mode, provider wrappers, MSW fixtures from an OpenAPI spec, colocated specs, and pointers into the five below |
+| `flawless-react` | Adding component, e2e or load tests to a React codebase; a generated suite is red; "scaffold tests for this component" | The umbrella: task selection, Next.js mode, provider wrappers, MSW fixtures from an OpenAPI spec, colocated specs, and pointers into the six below |
 | `flawless-regen` | Before regenerating over an adopted suite, after upgrading the tool, or when a `--changed` run appears to have done nothing | The generated / refreshed / kept lifecycle, what a re-run rewrites versus keeps, `--force`'s merge semantics and the colocated stamp, and proving a run happened from the result JSON rather than stdout |
 | `flawless-unit-browser` | A generated unit or browser spec is red; filling TODOs after a run; a browser spec reports "unknown component" | What the generated specs assert, the provider wrapper and its write-once fixtures, the mock allowlist, answering `test.skip` and `TODO(flawless)` markers, and registering a component in the browser host |
 | `flawless-findings` | Triaging a findings list; deciding fix-versus-suppress; a suppression shows up as unused | perf-static, a11y and react-rules findings, REPORT.md's accounting, the `reports/` JSON and sidecars, and the suppression rules that keep your Biome and the tool's sweeps agreeing |
 | `flawless-e2e-load` | Right before `flawless:e2e` or `flawless:load`; pipes report suspiciously fast p95s; e2e fails at global setup | Seeded-DB prerequisites, the global-setup login, `params.json` ids, `LOAD_BASE`/`LOAD_AUTH`, baselines, and the anti-vacuous probes that decide whether the numbers mean anything |
+| `flawless-expo` | Generating or fixing native specs; a native suite is red; deciding whether a task refusal is a bug or the design | What `--expo` detects, which tasks run and which refuse, the jest-expo + `@testing-library/react-native` unit plane, `renderRouter` versus `render`, the native selector ladder and why a skip is a skip, and the version pairing that has to be exact |
 | `flawless-api` | Scripting suite generation, building a custom report, or embedding the tool in another workflow | `runFlawless`/`runCore` options and results, the exit-code and error contracts, the `analyse()`/`ComponentTree` surface, the tasks registry, and the `--ci` JSON contract |
 
 Each links onward to the others, so loading one usually pulls the right neighbour when the

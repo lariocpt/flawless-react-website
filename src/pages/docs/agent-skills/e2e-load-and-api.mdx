@@ -4,7 +4,7 @@ title: E2E, load and the API
 description: The flawless-e2e-load and flawless-api skills — the global-setup login guard, LOAD_BASE and LOAD_AUTH, the anti-vacuous probes, and the runFlawless, testRun and --ci contracts.
 ---
 
-Two of the six skills in `.claude/skills/` cover what happens outside the generator: the
+Two of the seven skills in `.claude/skills/` cover what happens outside the generator: the
 suites that hit your real app, and the surface you drive the tool from when nobody reads a
 terminal. Both guard one failure — a number that looks like an answer and is about nothing.
 
@@ -19,7 +19,7 @@ numbers mean anything. Its premise: both suites run against the **real app** —
 MSW cannot intercept a server component's database access, load because measuring anything
 else is fiction. That realism is where every vacuous pass hides.
 
-Both suites are Next.js-only, and emitted together so they share `params.json`:
+Both suites need a route table — `--nextjs`, or `--expo` with `expo-router` — and are emitted together so they share `params.json`:
 
 ```bash
 flawless-react "src/**/*.tsx" --nextjs . --tasks e2e,load --no-interactive
@@ -53,8 +53,9 @@ A route that redirects **on purpose** — a default sub-tab, a locale landing �
 otherwise fail forever. Record the destination in `flawless/e2e/params.json` under
 `landing`, keyed by route template (`"/dash"` to `"/dash/overview"`), not in the spec:
 `--force` regenerates specs and leaves `params.json` alone. Dynamic segments come from that
-same write-once file, and a blank id does not fail — it makes a URL with an empty segment
-that hits the 404 handler.
+same write-once file, and a missing id fixture never fabricates a URL: the route's specs
+emit a `test.skip` naming the file to fill (`no id fixture for /posts/[id] — fill
+flawless/e2e/params.json`), so the gap is a visible skip rather than a 404 measured as a pass.
 
 ### 2. Load needs a production build and proven auth
 

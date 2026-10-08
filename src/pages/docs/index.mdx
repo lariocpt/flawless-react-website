@@ -39,7 +39,7 @@ The difference matters for two of the seven tasks; see [Install](/docs/install/)
 - [Case study: a whole app](/docs/case-study/) — all seven tasks over 181 components of a real Next.js app, and what the tool refused to guess.
 - [Architecture](/docs/architecture/) — the analyse phase, the scaffold phase, and why they are split.
 - [Limits & troubleshooting](/docs/limits/) — what the static analyser deliberately does not do, and fixes for the common failure messages.
-- [Agent skills](/docs/agent-skills/) — the six Claude Code skills the tool ships, and what each stops an agent getting wrong.
+- [Agent skills](/docs/agent-skills/) — the seven Claude Code skills the tool ships, and what each stops an agent getting wrong.
 
 ## At a glance
 
@@ -52,7 +52,7 @@ The seven task ids, and what each one leaves behind:
 | `perf-static` | `reports/<Component>.perf-static.json` — rerender and memoisation risks (children rendered with no `useMemo`/`useCallback`/`memo`/`useRef`) and props the analyser could not synthesise a default for. |
 | `a11y` | `reports/a11y.json` (one aggregate per run) — Biome's accessibility rules over the targeted tree, as file:line findings. |
 | `react-rules` | `reports/react-rules.json` (one aggregate per run) — a curated set of bug-catching React and hooks rules via Biome (`useExhaustiveDependencies`, `useHookAtTopLevel`, `useJsxKeyInIterable`, and friends), bypassing any local `biome.json`. |
-| `e2e` | `e2e/<route>.spec.ts` — one Playwright spec per app-router page: the route loads with no console or page errors, plus interactions harvested from its component tree. Next.js mode only. |
+| `e2e` | `e2e/<route>.spec.ts` — one Playwright spec per app-router page: the route loads with no console or page errors, plus interactions harvested from its component tree. Needs `--nextjs` or `--expo`. |
 | `load` | `load/routes.pipes` — crust load pipes per route and per API operation. Each run writes `load/last-<name>.json`; you promote one to `load/baseline-<name>.json` by hand, and later runs then fail when p95 exceeds 2x it. |
 
 Findings also surface where the code lives: a small `<Component>.flawless.json` is dropped next

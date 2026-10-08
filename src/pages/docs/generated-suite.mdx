@@ -44,7 +44,7 @@ The default output directory is `./.flawless`; `--out <dir>` moves it.
 │   └── <Component>.spec.ts
 ├── provider.tsx              # only with --provider — the derived wrapper
 ├── provider.fixtures.ts      # write-once — the values your provider chain needs
-├── e2e/                      # e2e (Next.js mode)
+├── e2e/                      # e2e (Next.js / Expo mode)
 │   ├── global-setup.ts       # write-once login stub; writes .auth.json
 │   ├── params.json           # merge-preserving — real ids per dynamic route
 │   └── <route>.spec.ts
@@ -667,7 +667,7 @@ tool's to keep current, the values in it are yours.
 
 ## e2e/
 
-Written by the `e2e` task, which runs in Next.js mode only. Every analysed app-router `page.tsx`
+Written by the `e2e` task, which runs under `--nextjs` or `--expo` (`expo-router`). Every analysed app-router `page.tsx`
 becomes one spec, and `e2e/playwright.config.ts` boots the target's own `bun run dev`, reading the
 port out of that script.
 

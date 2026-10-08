@@ -299,7 +299,7 @@ A dead link, a redirect chain or a missing `#fragment` target on the deployed si
 
 Honest about what doesn't work yet:
 
-- **Next.js mode only** — there is no route table to derive targets from otherwise.
+- **`--nextjs` or `--expo` only** — there is no route table to derive targets from otherwise.
 - **GET only.** Mutating flows are yours to add, deliberately.
 - **One rate for every pipe.** `load 10s 50/s | parallel 16` is a starting point the analysis cannot improve on — a dashboard and a static marketing page get the same numbers until you tune them.
 - **The probe covers static routes only.** A dynamic route with a stale-but-non-empty id still measures whatever that id resolves to.

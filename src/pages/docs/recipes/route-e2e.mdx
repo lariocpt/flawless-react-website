@@ -8,7 +8,7 @@ description: One Playwright spec per app-router page, a write-once global-setup.
 
 ## The prerequisites are the recipe
 
-The `e2e` task is Next.js-only and runs against *your* app, not a mock. Two things are yours to arrange before a single spec means anything:
+The `e2e` task needs `--nextjs` (or `--expo` with `expo-router`) and runs against *your* app, not a mock. Two things are yours to arrange before a single spec means anything:
 
 ```bash
 bun run db:up && bun run db:migrate && bun run db:seed   # real rows, with ids you can read back

@@ -174,7 +174,7 @@ my-next-app/
     │   ├── node.ts
     │   └── README.md
     ├── host/
-    ├── tests/
+    ├── profile/
     ├── unit/
     ├── browser/
     └── reports/
@@ -184,7 +184,7 @@ There is no `flawless/package.json` and no `flawless/tsconfig.json`. That is the
 
 ### `package.json`
 
-The dependencies the generated suite needs are merged into your project's `devDependencies`, and three scripts are added so you can run each layer from the project root:
+The dependencies the generated suite needs are merged into your project's `devDependencies`, and a script is added for each plane the run selected — up to six: `flawless:unit`, `flawless:perf`, `flawless:browser`, `flawless:e2e`, `flawless:load`, `flawless:report` — so you can run each layer from the project root:
 
 ```json
 {
@@ -200,7 +200,7 @@ The dependencies the generated suite needs are merged into your project's `devDe
   },
   "scripts": {
     "flawless:unit": "vitest run --root flawless",
-    "flawless:perf": "playwright test --config flawless/playwright.config.ts flawless/tests",
+    "flawless:perf": "playwright test --config flawless/playwright.config.ts --project=chromium flawless/profile",
     "flawless:browser": "playwright test --config flawless/browser/playwright.config.ts"
   }
 }
