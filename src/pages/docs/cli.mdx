@@ -50,6 +50,8 @@ Every flag that takes a value accepts both `--flag value` and `--flag=value`. An
 | `--colocate` | Write unit specs beside their source as `<name>.flawless.test.tsx` — the ones you hand-harden. Each opens with a `// @flawless-generated sha256:…` provenance stamp so `--force` can tell an untouched spec from one you edited. |
 | `--force` | Regenerate the files a plain re-run keeps: colocated specs, e2e route specs, the derived provider wrapper. A colocated spec is only rewritten while its provenance stamp still matches — hand-edited (or pre-stamp) specs are kept and listed; delete one to regenerate it. A re-run already refreshes the out-dir harness; write-once files are never touched under any flag. |
 | `--report` | Emit `scripts/report.mjs`, so `bun run report` aggregates run output into a markdown summary. |
+| `--flags` | Print the flag inventory — every flag name, one per line — and exit. What `--help` renders from. |
+| `--check '<line>'` | Parse documented invocations without running them; exit nonzero if any fails to parse. Opens no file and spawns nothing. A maintenance flag: the tool dogfoods its own documentation with it, and the docs' example table is gated by it. |
 | `-h, --help` | Print the help text and exit. |
 | `-V, --version` | Print the version and exit. |
 
