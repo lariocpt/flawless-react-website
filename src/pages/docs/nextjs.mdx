@@ -250,13 +250,15 @@ Only entries not already present are added, so re-running does not accumulate du
 
 The tool formats every file it writes with *your* formatter before finishing — your biome if the repo has a biome config, your prettier otherwise, neither if you use neither — so a run never churns your formatting state, and the emitted suite already carries your quotes and your line width.
 
-That is formatting. *Linting* is a different question, and it needs one line from you: exclude the suite directory from the project's own lint sweep. `flawless/` is tool-managed and rewritten per run; a finding inside a generated mock is the tool's bug to fix, not your CI's failure to triage, and a red `biome check .` over generated code trains you to ignore lint output where it matters. For biome 2.x, add the exclusion to `files.includes`:
+That is formatting. *Linting* is a different question, and one part of it needs a line from you. `flawless/` is tool-managed and rewritten per run; a finding inside a generated mock is the tool's bug to fix, not your CI's failure to triage, and a red `biome check .` over generated code trains you to ignore lint output where it matters. So the run appends the suite directory to `.prettierignore` and, in an eslintrc project, to `.eslintignore` — the same append-only, keep-your-edits treatment as `.gitignore`, and only where those tools are configured. The ignore governs *your* sweeps; the tool keeps formatting its own output to your prettier config by passing an empty ignore path when it formats the files it just wrote. A dogfood run wrote the prettier line for a real reason: prettier 3.0.3 cannot parse the `with { type: "json" }` attribute the profile specs use (import attributes arrived in 3.1), so without the ignore that repo's `prettier --check .` fails on files it does not own.
+
+Biome is the one tool that keeps a manual step, because there is no ignore file to append to — the exclusion is a `files.includes` marker in your config, and its shape is version-gated JSONC the tool will not rewrite into your settings. For biome 2.x:
 
 ```json
 "files": { "includes": ["**", "!!**/flawless"] }
 ```
 
-(Use `!!**/.flawless` for a plain-mode suite generated without `--nextjs` — that is the default output directory there.) For ESLint, ignore `flawless/**` the same way you ignore any generated directory — `ignores` in the flat config. The tool reads that exclusion, by the way: it runs your biome with `--no-errors-on-unmatched`, so its own format pass over suite files stays quiet once the config excludes them.
+(Use `!!**/.flawless` for a plain-mode suite generated without `--nextjs` — that is the default output directory there.) The tool reads that exclusion back: it runs your biome with `--no-errors-on-unmatched`, so its own format pass over suite files stays quiet once the config excludes them. For a flat-config ESLint (`eslint.config.js`), ignore `flawless/**` through `ignores` — flat configs do not read `.eslintignore`, so the tool does not write one there.
 
 ## Which install channel to use
 
