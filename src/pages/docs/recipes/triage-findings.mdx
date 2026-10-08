@@ -84,8 +84,7 @@ Everything below is rewritten on every run. Nothing is appended; each file descr
 | `<outDir>/reports/summary.json` | per-task `ok`, `summary`, output count, finding count |
 | `<outDir>/reports/<Name>.perf-static.json` | that component's `perf-static` findings — one file **per component**, always |
 | `<outDir>/reports/a11y.json`, `react-rules.json` | the sweep aggregates: `filesScanned`, `findingCount`, `findingsByFile` |
-| `<outDir>/reports/<Name>.a11y.json`, `<Name>.react-rules.json` | per-component sweep findings — **only for components that own some** |
-| `<Component>.flawless.json` | a sidecar beside each analysed source |
+| `<Component>.flawless.json` | a sidecar beside each analysed source — its own finding counts, and `reports.*` paths pointing at the report files above |
 | `<outDir>/REPORT.md` | the run's accounting, in prose and tables |
 
 `a11y` and `react-rules` are **sweeps**: one biome process over the deduped file set, one aggregate out. `perf-static` is *per component*. That asymmetry is why a sidecar's `reports.a11y` and `reports.reactRules` point at a single run-level file while `reports.perfStatic` names a component file.
@@ -119,7 +118,13 @@ A `<Component>.flawless.json` is dropped next to each analysed source so finding
 
 ### The stale-report trap
 
-Per-component sweep reports are written **only for components that have findings**, and are never deleted. A component you just fixed leaves its old report on disk, so an `ls` over `reports/` counts a finding that no longer exists. Here is the whole failure, live — one file whose index key has just been suppressed (the suppression itself is below, under **Fix or suppress**), re-run:
+Nothing in `reports/` is ever deleted. The sweeps (`a11y`, `react-rules`) write a single
+aggregate each, rewritten every run, but `perf-static` writes one sidecar per component — so
+a component you delete or rename leaves its fossil on disk, and an `ls` over `reports/`
+counts a finding that no longer has a file to belong to. (Suites that predate the current
+tool deserve one `rm` of strays: earlier versions spelled sweep reports per component, names
+no run writes any more.) Here is the accounting, live — one file whose index key has just
+been suppressed (the suppression itself is below, under **Fix or suppress**), re-run:
 
 ```bash
 flawless-react "src/TagList.tsx" --tasks react-rules --no-interactive
@@ -130,7 +135,7 @@ Summary:
   [ok] react-rules    files:1 findings:0  react-rules: 0 finding(s) across 1 file(s)
 ```
 
-Zero findings — and `reports/TagList.react-rules.json` is still sitting there, still claiming `noArrayIndexKey` at line 14, a line that no longer exists in that shape. The aggregate is honest (`"findingCount": 0`); the leftover per-component file is a fossil.
+Zero findings — and the aggregate is rewritten honestly: `"findingCount": 0`, and `findingsByFile` no longer lists `TagList.tsx`. No current file still carries the old claim, because sweeps are aggregates and the aggregate was rewritten. Fossils are what a deleted component's `perf-static` sidecar, or a previous version's stray file, leaves behind — `reports/` never deletes, so run the accounting off the summary, not off the directory.
 
 **Never count findings by globbing `reports/`.** Trust the task summary line, the `--ci` blob, or REPORT.md.
 
