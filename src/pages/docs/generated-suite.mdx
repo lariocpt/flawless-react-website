@@ -164,20 +164,69 @@ The build runs **at startup**, not per request, so test runs hit a hot bundle. I
 on `main.tsx` you can either restart the server manually or replace the one-shot build with a
 `Bun.build` watcher.
 
-Two details in the build config exist for a specific reason:
+Three plugins ride the build, each for a specific reason:
 
 - A `resolve-from-suite` Bun plugin resolves bare specifiers (`react`, `react-dom/client`, and so
   on) against the suite's own `node_modules` instead of the importing file's directory. Component
   files usually live outside the suite — in your repo, or in a fixtures directory with no React
-  installed — and without the plugin those imports fail to resolve.
-- `define: { global: "globalThis" }` rewrites bare `global` references at build time. The runtime
-  half of that problem is handled by `host/_polyfill.ts`.
+  installed — and without the plugin those imports fail to resolve. Under a pnpm-style strict
+  layout, transitive deps are out of the suite's reach but visible from the importer's own
+  directory, so the plugin falls back to resolving from the importer — a silently unresolved
+  transitive import emits the use site with the binding `undefined` and dies at boot, not at
+  build time.
+- A `stubServerModules` plugin keeps anything that cannot run in a browser out of the bundle.
+  Its full policy is the next section.
+- `define: { global: "globalThis" }` rewrites bare `global` references at build time, alongside
+  the inlined env vars below. The runtime half of that problem is handled by `host/_polyfill.ts`.
 
 With `--api`, any request that is not `/`, `/index.html` or `/bundle.js` is proxied to the mock
 server, method, headers and body unchanged.
 
 **Edit when**: you want to inject env vars into the bundle, add CSS, or serve additional static
 assets such as mock JSON fixtures.
+
+## host build: stubs and inlined env
+
+The perf host mounts your real components in a bare browser. Most modules your components
+transitively import have no business being in that bundle — they want node builtins, native
+binaries, a database driver, or a compiler hook that only exists inside `next build`. The build
+answers each of those with something that *builds and mounts*, and says what it stubbed on boot:
+`[flawless] stubbed 3 server-action module(s) for the browser bundle`.
+
+- **CSS is invisible.** `.css`, `.scss`, `.sass`, `.less` — and the `tailwindcss` package itself —
+  resolve to one empty stylesheet module. Bun's CSS pipeline cannot run the app's real one
+  (tailwind v4's `@import "tailwindcss"` is a build step, not a file), and render-count
+  measurement does not care about styles at all.
+- **Server modules are stubbed by path.** `"use server"` action modules the analysis found get a
+  generated stub surface with the real export names. The map is keyed by path *emitted relative to
+  the host directory* and resolved back to absolute at runtime — an absolute key in the committed
+  file would name the machine that generated it, and every stub would miss on any other checkout.
+- **Server-only libraries are intercepted by bare specifier.** Provider-bound auth libraries and
+  the data-connector families — `@supabase/*`, `@prisma/adapter*`, `mongodb`, `mongoose`, `pg`,
+  `kysely`, `drizzle-orm` — resolve fine in the suite's `node_modules`, and that is the problem:
+  the real module lands in the bundle and throws at import. Where the analyser produced a stub
+  surface it is used; where it did not, a recursive self-describing CJS `Proxy` answers *any*
+  named import with a callable stub — `then` deliberately returns `undefined`, so nothing can
+  mistake a stub for a thenable and await forever.
+- **`prisma` and `@prisma/*`** get a named-export stub enumerating the real runtime's surface
+  (`Decimal`, `PrismaClientKnownRequestError`, `sqltag`, …): the generated client imports those
+  names from the package by ESM, and a missing named export fails the build, not just runtime.
+- **Node builtins** — `node:fs` and the unprefixed `fs`/`stream` spellings the resolver proves are
+  builtins — share a node stub; in a browser target there is no such file to resolve to.
+- **`next/navigation`** gets the deterministic router stub; **`server-only`** resolves to an empty
+  module (the package is absent in many repos and throw-on-import where installed, and modules
+  that import it transitively still have to *build*).
+- **`next/font/*`** gets a `makeFont` factory behind a Proxy namespace. The real loader is a
+  compiler hook with no runtime, and `geist` and friends run their factory at module scope of
+  every file that imports them; the stub returns the same shape consumers read — `className`, the
+  CSS `variable`, and a `style` carrying the fallback stack.
+
+Alongside the plugins, the build **inlines the repo-root env**: `.env`, `.env.local`,
+`.env.development` and `.env.development.local`, merged in Next's precedence order (later file
+wins) and emitted as `define` entries for `process.env.*`, with `NODE_ENV` pinned to
+`"development"`. Module-scope code runs during the bundle's evaluation, and the repo that boots
+`new URL(process.env.DATABASE_URL)` at import time does not get a second chance — without the
+inline it throws at startup and takes the whole host down.
 
 ## host/index.html
 
