@@ -96,9 +96,9 @@ required. The package name is the suite's own name with a `-profile` suffix, and
 `private` and `"type": "module"`.
 
 Scripts from `perf-harness`: `test` (`playwright test`), `test:perf` (the same command under the
-name `--run-tests` looks for), `test:headed` (`playwright test --project=interactive`), and — only
-when you passed `--report`, which is also the only time `scripts/report.mjs` is written — `report`
-(`node ./scripts/report.mjs`).
+name `--run-tests` looks for), `test:headed` (`playwright test --headed` — Playwright's own flag,
+no second project), and — only when you passed `--report`, which is also the only time
+`scripts/report.mjs` is written — `report` (`node ./scripts/report.mjs`).
 
 If `unit-browser` runs as well, it **merges into** this file rather than replacing it — and so does
 `perf-harness`, so the result does not depend on the order you list the tasks in. It adds
@@ -109,8 +109,11 @@ If `unit-browser` runs as well, it **merges into** this file rather than replaci
 anything you have bumped by hand. If no `package.json` exists yet — `unit-browser` on its own —
 one is created with the same base deps.
 
-**Edit when**: your parent project uses a different React major (17 or 19). Pin the suite's `react`
-and `react-dom` to match before `bun install`.
+**Edit when**: your parent project uses React 17 or 18 instead of 19 — the scaffolder already
+pins the suite's `react`, `react-dom` and Testing Library to match the app's React major
+(`@testing-library/react` 12 plus `@testing-library/dom` 8 below React 18; a stale 13+ pin
+surviving a merge is repaired on the next run), so you only edit this if you have deliberately
+re-bumped one by hand.
 
 ## tsconfig.json
 
@@ -129,7 +132,7 @@ checker.
 The perf suite's config. `testDir` is `./profile`, the reporters are `list`, a `json` report written
 to `test-results/results.json` (what `scripts/report.mjs` reads) and an HTML report written to
 `playwright-report/` (never auto-opened), `preserveOutput` is `"always"`, and traces are kept on
-failure. Two projects are defined: `chromium` (default, headless) and `interactive` (headed).
+failure. One project, `chromium` — headed runs use `test:headed` (`--headed`), not a second project.
 
 The key field is `webServer`, which auto-boots the host before any test runs:
 
