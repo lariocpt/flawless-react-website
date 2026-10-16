@@ -742,10 +742,15 @@ Next.js mode writes both, at the root of the output directory.
 
 `provider.tsx` is the client-safe provider chain, derived from your app-router layout's JSX around
 `{children}` — the same wrapper your pages really render inside, minus what cannot run in a client
-test. Non-literal props the layout passed are emitted as `TODO(flawless)` comments rather than
-guessed at, so a session the layout read on the server becomes a named hole instead of a
-plausible-looking lie. Because it is derived from the layout, `--force` refreshes it when your
-provider chain changes.
+test. Nothing it leaves out is silent. A prop the layout passed non-literally is emitted as a
+`TODO(flawless)` comment rather than guessed at, so a session the layout read on the server becomes
+a named hole instead of a plausible-looking lie. A provider layer it will not mount is listed at the
+top of the file with the reason — not a `"use client"` module, an import that does not resolve
+locally, or one that pulls in an auth library, which the planes replace with a signed-out stub so
+that a provider gating its children on a session would render nothing at all. The list names the
+layer, which is the difference between "this spec has no Convex client" being a mystery and being a
+line item; the fix is your own `--provider`, because this file is derived and `--force` overwrites
+it. Because it is derived from the layout, `--force` refreshes it when your provider chain changes.
 
 `provider.fixtures.ts` beside it holds the values that chain needs: your store's initial state, a
 query client, a theme. It is **write-once** and no flag overwrites it, because nothing can recover
