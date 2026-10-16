@@ -166,6 +166,8 @@ There, and *not* in the spec: `--force` regenerates specs and leaves `params.jso
 
 Do not use this map for an auth wall. When the app's own middleware guards the routes — Clerk's `auth.protect()`, a `next-auth` matcher — every route behind it answers 404 or bounces to sign-in with placeholder keys, and recording `/dash` → `/sign-in` would only launder the wall into a green suite that asserts nothing about `/dash`. The redirect you record is the app's own landing behaviour (a sub-tab, a locale); the redirect you authenticate past is a credential problem, and its fix lives in `global-setup.ts`. If you cannot supply credentials, say so in the run's notes rather than mapping your way to a pass.
 
+A wall can also stop the run before it starts. Playwright treats the dev server as up only when the readiness url answers 2xx or 3xx, and that url is the app root, so a middleware that 404s the root produces `Timed out waiting 120000ms from config.webServer` with no spec executed at all — the repeated `[WebServer] GET / 404` line is the tell, and the absence of any assertion is the danger, because a run that never started looks a lot like a run that failed.
+
 ## Flags
 
 | Flag | Default | Notes |

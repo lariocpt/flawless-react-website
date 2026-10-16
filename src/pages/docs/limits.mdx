@@ -75,6 +75,10 @@ Something reads an environment variable at module scope. The suite's Vitest conf
 
 The app's own middleware is an auth wall — Clerk's `auth.protect()`, a `next-auth` matcher — and with placeholder keys every route behind it answers 404 or bounces to sign-in. That is the app working, not the suite breaking: fill real credentials in `flawless/e2e/global-setup.ts`, or do not claim e2e coverage for the routes behind the wall.
 
+### The e2e run times out before its first spec
+
+`Timed out waiting 120000ms from config.webServer`, with `[WebServer] GET / 404` repeating in the log and not one spec executed, is that same wall one stage earlier. Playwright calls a dev server up only when the readiness url answers 2xx or 3xx, and the readiness url is the app root. A root the middleware 404s is a server that never started, so no assertion ever runs. Credentials make the root answer 200 or a sign-in redirect and the run proceeds. To point the suite at a server you started yourself, export `FLAWLESS_E2E_BASEURL` — the emitted config drops its own `webServer` block in that case — or repoint the readiness url at a route that answers.
+
 ### The component reads `useSelector` or `useContext` and throws "could not find … in the context"
 
 Pass `--provider <file>` pointing at a `.tsx` that default-exports a wrapper component containing your Redux Provider, QueryClientProvider, ThemeProvider, and so on. The host wraps every mounted component in it. Under `--nextjs`, the auto-derived wrapper skips any provider layer whose own module directly imports an auth library (`@clerk/*`, `next-auth`): the unit and browser planes replace those libraries with a signed-out stub, so a provider that gates its children on a session renders *nothing* and every spec silently inherits the blank screen — while the stub already satisfies the context reads auth-consuming components make. Supply your own `--provider` if you want that layer mounted under test.
