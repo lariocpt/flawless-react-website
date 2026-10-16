@@ -76,6 +76,8 @@ bunx flawless-react app/page.tsx --nextjs --app-resolver ./test/FlawlessProvider
 
 `--app-resolver` and `--provider` are aliases in this mode. If you pass both, `--provider` wins. Whichever you pass takes precedence over the auto-detected file.
 
+An auto-derived wrapper skips any provider layer whose own module imports an auth library (`@clerk/*`, `next-auth`). The unit and browser planes replace those libraries with a signed-out stub, so a provider that gates its children on a session renders *nothing* — every wrapped spec would inherit the blank tree — while the stub already satisfies the context reads auth-consuming components make. The skip is decided per layer, not for the whole tree: theme, query, Redux and the rest still mount. Pass your own `--provider` when you want the auth layer actually mounted under test, and point it at a variant that seeds a session.
+
 ## API routes become handlers
 
 Components that fetch need something to fetch from. Rather than asking you to write mocks, flawless reads the API routes you already have and derives them.
@@ -228,6 +230,8 @@ run selected — up to six: `flawless:unit`, `flawless:perf`, `flawless:browser`
 ```
 
 The script paths are written relative to the project root, so they follow `--out` if you moved the output directory. The merge only ever touches its own keys — and since 0.3.0 it does not even overwrite those blindly: a `flawless:*` value you have customised (say, adding `--env-file` to a load script) is recognised as your work and kept, because the tool only upgrades values it can identify as one of its own past spellings. Kept keys are named in the run summary, in REPORT.md as `> Kept script(s): ...`, and in the `--ci` blob's `keptScripts`. Delete the key and re-run to take the tool's current command.
+
+On a pnpm project the merge writes one more key: `pnpm.ignoredBuiltDependencies` listing `@playwright/test` and `msw`, and only when the repo is pnpm-installed (`pnpm-lock.yaml` present). pnpm 10 treats an unrecorded build-script decision as an error, and both packages ship a postinstall, so the merge introducing them was enough to make the app's own `pnpm run dev` fail with `ERR_PNPM_IGNORED_BUILDS` — a test scaffold that breaks the app it scaffolds for. Anything you already approved through `onlyBuiltDependencies` stays approved; the merge records only its own decisions, and never rewrites an entry you wrote.
 
 ### `.gitignore`
 

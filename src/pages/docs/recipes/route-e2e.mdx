@@ -164,6 +164,8 @@ A default sub-tab or a locale landing would otherwise fail the landing assertion
 
 There, and *not* in the spec: `--force` regenerates specs and leaves `params.json` alone, so an expectation recorded in a spec is advice the next regeneration deletes. The tool never writes an entry here — the map exists only to carry what you tell it. The `load` task's `routes.setup.ts` reads the same map when it probes that `LOAD_AUTH` still authenticates, so the two suites cannot drift apart over which redirects are legitimate.
 
+Do not use this map for an auth wall. When the app's own middleware guards the routes — Clerk's `auth.protect()`, a `next-auth` matcher — every route behind it answers 404 or bounces to sign-in with placeholder keys, and recording `/dash` → `/sign-in` would only launder the wall into a green suite that asserts nothing about `/dash`. The redirect you record is the app's own landing behaviour (a sub-tab, a locale); the redirect you authenticate past is a credential problem, and its fix lives in `global-setup.ts`. If you cannot supply credentials, say so in the run's notes rather than mapping your way to a pass.
+
 ## Flags
 
 | Flag | Default | Notes |

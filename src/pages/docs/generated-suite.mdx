@@ -548,6 +548,13 @@ the config itself (a Next.js host's tsconfig says `jsx: "preserve"`, which leave
 esbuild on the classic runtime and every render dies with "React is not defined"), loads
 `./setup.ts` as a setup file, includes `unit/**/*.test.{ts,tsx}`, and turns Vitest globals on.
 
+It also reads the app's own env files — `.env.test.local`, `.env.test`, `.env.local`, `.env` and
+`.env.example`, in that order, first value wins, with keys already in the environment beating all
+of them. `.env.example` rides last because a template repository ships only the example, and its
+placeholder values exist precisely to satisfy module-scope construction: a component that throws
+"… URL is required" while reading `process.env` at import time needs *a* value, any value, before
+a single test runs. Export an override when a placeholder must not be used.
+
 The `.mts` extension is not cosmetic. Vite decides ESM or CommonJS from the nearest `package.json`,
 which in Next.js mode is the target application's — and that usually has no `"type": "module"`, so
 the config loaded as CommonJS and Vite warned that its strict loader, planned to become the default
@@ -602,8 +609,17 @@ What gets emitted:
   real event — `userEvent.click`, `userEvent.type`, `userEvent.pointer`, `userEvent.keyboard`,
   `focus`/`blur`, depending on the event name — asserts that handler was called, and asserts that
   **no other** handler prop was called. That isolation assertion is the interesting half: it catches
-  a click that fires two callbacks. Where the handler is a local or inline function instead, the
-  test still dispatches the event and asserts that no prop handler fired.
+  a click that fires two callbacks. A named local handler is read through: `onClick={handleConfirm}`
+  resolves to its declaration, and when that body calls exactly one prop handler as a plain
+  statement the step asserts on that prop for real. A body that calls two props claims neither, and
+  the test stays a canary — dispatch the event, assert no prop fired.
+- A control behind a closed disclosure gets an open prelude. The spec clicks the trigger (by prop
+  label, literal text, or its own fixture child), clears the spies, then queries with the awaiting
+  `findBy*` form, because a Radix content subtree is not in the DOM until the trigger is clicked. A
+  gated step whose trigger label cannot be resolved is emitted unprotected and goes red rather than
+  skipping — that red is the generator marking where its own reading stopped.
+- A `children` value the analysis sees flowing into an `asChild`/Slot site is mounted as a `<span>`,
+  never bare text, because slot cloning rejects a text child.
 - One test per detected form: fills each field the analyser could locate, with a type-appropriate
   sample value (`user@example.com` for an email input, `42` for a number, and so on), clicks the
   submit button, and asserts the submit handler ran.
