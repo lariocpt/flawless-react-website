@@ -76,7 +76,17 @@ bunx flawless-react app/page.tsx --nextjs --app-resolver ./test/FlawlessProvider
 
 `--app-resolver` and `--provider` are aliases in this mode. If you pass both, `--provider` wins. Whichever you pass takes precedence over the auto-detected file.
 
-An auto-derived wrapper skips any provider layer whose own module imports an auth library (`@clerk/*`, `next-auth`). The unit and browser planes replace those libraries with a signed-out stub, so a provider that gates its children on a session renders *nothing* — every wrapped spec would inherit the blank tree — while the stub already satisfies the context reads auth-consuming components make. The skip is decided per layer, not for the whole tree: theme, query, Redux and the rest still mount. Pass your own `--provider` when you want the auth layer actually mounted under test, and point it at a variant that seeds a session.
+Finding the file is only the first half, because what it *is* decides whether it can be mounted. An App Router `layout.tsx` is usually an async server component importing `next/font` or `next/headers`, none of which run under jsdom. A Pages Router `_app.tsx` has a different problem: it renders `<Component />` and never mentions `{children}`, so mounting it as the wrapper would wrap nothing. In both cases flawless derives a client-safe `flawless/provider.tsx` from the chain that does enclose the tree — for `_app.tsx`, anchored on `<Component />` — and mounts that instead, naming the layers it kept and the layers it dropped with the reason for each:
+
+```
+nextjs: app resolver cannot mount under jsdom — derived flawless/provider.tsx (providers: ThemeProvider — dropped SessionContextProvider (auth-gated))
+```
+
+Refresh it with `--force`. The `flawless/provider.fixtures.ts` file beside it is yours and is never rewritten.
+
+An auto-derived wrapper skips any provider layer whose own module imports an auth library (`@clerk/*`, `next-auth`, and the Supabase auth layer — `@supabase/auth-helpers-*` and `@supabase/ssr`; the `@supabase/supabase-js` SDK itself is deliberately left alone, because a stubbed `from().select()` chain would turn a named failure into `undefined` quietly flowing through an assertion). The unit and browser planes replace those libraries with a signed-out stub, so a provider that gates its children on a session renders *nothing* — every wrapped spec would inherit the blank tree — while the stub already satisfies the context reads auth-consuming components make. The skip is decided per layer, not for the whole tree: theme, query, Redux and the rest still mount. Pass your own `--provider` when you want the auth layer actually mounted under test, and point it at a variant that seeds a session.
+
+The app resolver's own imports are collected as well, even though it is not an analysed component. That matters when the client is constructed *there*: a pages `_app.tsx` that builds a browser client in a `useState` initializer throws from the constructor before any spec runs — `either NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY env variables or supabaseUrl and supabaseKey are required` — and every spec file dies on it, 26 tests in 17 files, without reaching an assertion. Reading the resolver's import table is all the collector needs to stub the specifier it asked for.
 
 ## API routes become handlers
 
