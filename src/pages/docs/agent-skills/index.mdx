@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Agent skills
-description: The seven Claude Code skills flawless-react ships in .claude/skills — what each one knows, when Claude loads it, how to install them, and why a stale copy is worse than none.
+description: The seven agent skills flawless-react ships in .agents/skills — what each one knows, when an agent loads it, how `flawless-react skills install` puts them in place, and why a stale copy is worse than none.
 ---
 
 ## What these are
@@ -11,7 +11,8 @@ descriptions, and when a task matches one it loads that file's full contents int
 working context. Nothing runs; nothing is fetched. It is documentation with a trigger
 condition attached.
 
-flawless-react ships **seven** of them, in `.claude/skills/` in the tool's own repository.
+flawless-react ships **seven** of them, in `.agents/skills/` in the tool's own repository —
+the directory Claude Code, Codex, Cursor and OpenCode all read.
 They exist because the failure modes on this site are not discoverable from the CLI's
 `--help`. An agent that has never seen this documentation will point the tool at a glob,
 get a suite with eighty `TODO(flawless)` markers, and either answer them wrong or delete
@@ -37,25 +38,38 @@ task turns out to be somewhere else.
 
 ## Installing them
 
-They are plain directories. Copy them out of the tool's repository into either scope:
+With the CLI, in either scope:
 
 ```bash
-# Project scope — checked in, shared with everyone working on the repo
-mkdir -p .claude/skills
-cp -R /path/to/flawless-react/.claude/skills/flawless-* .claude/skills/
-
-# User scope — available in every project on this machine
-cp -R /path/to/flawless-react/.claude/skills/flawless-* ~/.claude/skills/
+flawless-react skills list              # what is installed, in both scopes
+flawless-react skills install           # pick them in a menu
+flawless-react skills install --all     # every skill, no menu (CI, scripts)
+flawless-react skills install --select flawless-react,flawless-regen
+flawless-react skills install --global  # into ~/.agents/skills, every project
 ```
 
-Project scope wins when both exist, which is what you want: a repo that has adopted a suite
-can pin the guidance its contributors get.
+They are written to `.agents/skills/<name>/SKILL.md`, and each one also gets its own
+link at `.claude/skills/<name>` — Claude Code looks for skills there and reads one
+file, so it gets a link per skill rather than a directory of things it was not asked
+to load. That is why the install reports two counts:
 
-> **A stale copy is worse than none.** The repository copy is the source of truth, and it
-> moves when the tool moves. A user-level copy that still describes a workflow the tool has
-> since removed will be loaded with the same confidence as a current one, and it will be
-> wrong in exactly the situation you reached for it. Re-copy after upgrading, and if you
-> keep both scopes, diff them.
+```
+✔ installed 3, up-to-date 4 → /repo/.agents/skills
+  linked 3 into /repo/.claude/skills for Claude Code
+```
+
+Project scope wins when both exist, which is what you want: a repo that has adopted
+a suite can pin the guidance its contributors get.
+
+`npm install` asks whether to install them; an interactive `flawless-react` run asks
+once at the end and stops asking as soon as the project has one. `FLAWLESS_NO_SKILLS=1`
+silences both.
+
+> **A stale copy is worse than none.** The repository copy is the source of truth, and
+> it moves when the tool moves. That is what `skills list` is for: a skill whose bytes
+> differ from the copy embedded in your binary is reported as edited rather than
+> current, and `install` refuses to overwrite it without `--force`. Re-run the installer
+> after upgrading, and if you keep both scopes, check them both.
 
 ## Why the tool bothers
 

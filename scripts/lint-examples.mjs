@@ -144,6 +144,12 @@ const real = new Set(
     .map((s) => s.trim())
     .filter(Boolean),
 );
+// `--flags` deliberately prints only the flags that change what a RUN does, so the
+// two meta-verbs that answer about the CLI itself are not in it — while this site's
+// table is "every flag flawless-react accepts", and documents them. If a third
+// meta-flag ever appears, the check below fails as "invented", which is the loud
+// direction: come add it here.
+for (const meta of ["--flags", "--check"]) real.add(meta);
 if (real.size === 0) {
   console.error("lint-examples: --flags printed nothing — is the binary older than the flag?");
   process.exit(1);

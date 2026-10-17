@@ -47,6 +47,21 @@ single component:
 bunx flawless-react ./src/Dashboard.tsx
 ```
 
+## Skills, at install time
+
+The source package asks one question while it installs: whether to put [the agent
+skills](/docs/agent-skills/) into the project you are installing into. It asks only in a
+terminal, never on CI, never for a global install, and the default is no. `npm install`
+can skip install scripts entirely, so the same offer is made at the end of an
+interactive `flawless-react` run, and `flawless-react skills install` is always there:
+
+```bash
+flawless-react skills list
+flawless-react skills install --all
+```
+
+Set `FLAWLESS_NO_SKILLS=1` and neither place ever asks.
+
 ## Why the binary cannot carry biome
 
 The binary is self-contained Bun, which means it has no `node_modules` tree at runtime — there
