@@ -1,15 +1,21 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Specs and findings
-description: flawless-unit-browser and flawless-findings — write-once fixtures, the mock allowlist, answering TODO(flawless), the colocated stamp, triage order, and the unused-suppression trap.
+description: The six skills covering the output you edit — flawless-unit-browser, flawless-perf-harness, flawless-perf-static, flawless-a11y, flawless-react-rules and flawless-findings. Write-once fixtures, the mock allowlist, answering TODO(flawless), why a budget warns, which rule set produced a finding, and the unused-suppression trap.
 ---
 
-## The two skills that cover the output you edit
+## The six skills that cover the output you edit
 
-A skill is a markdown file Claude Code loads on demand when a task matches its `description`.
-These two cover the half of a run that arrives with work attached: `flawless-unit-browser`
-for the specs `unit-browser` and `perf-harness` write, `flawless-findings` for the three
-tasks that only report.
+A skill is a markdown file an agent loads on demand when a task matches its `description`. These
+six cover the half of a run that arrives with work attached, split by which plane produced it:
+`flawless-unit-browser` for the specs `unit-browser` writes, `flawless-perf-harness` for the
+runtime plane those browser specs mount on, `flawless-perf-static`, `flawless-a11y` and
+`flawless-react-rules` one each for the three reporting tasks, and `flawless-findings` for the
+triage that spans all three.
+
+That split is deliberate. Before it, one findings skill covered three rule sets and could not say
+which of them had produced the line on your screen — and the two errors it taught with confidence
+were exactly the two you would not catch yourself.
 
 ## `flawless-unit-browser`
 
@@ -112,20 +118,101 @@ So `unknown component: <Name>` means the re-run has not happened yet — unless 
 pre-split, its `main.tsx` carrying no `from "./registry"` import, which owes the one-time
 migration the warning names: delete `host/main.tsx` and re-run, regenerating provider wiring
 from `--provider`. No flag rewrites `main.tsx`; write-once is absolute, `--force` included
-(findings-ledger **FR-016**).
+(findings-ledger **FR-016**). The host those specs mount — its boot file, budgets, snapshots and
+the port it shares with this plane — is `flawless-perf-harness`.
+
+## `flawless-perf-harness`
+
+**Loads when** you are about to run `flawless:perf`, when a profile spec is red or a budget warns,
+when snapshots are missing, or **before quoting a mount time to anyone**. It is the runtime plane:
+a Bun-served host bundle, one Playwright spec per host-mountable component, React's Profiler, and
+V8 heap snapshots.
+
+**What it knows.** Which files are whose: `host/registry.ts` regenerates every run — so a component
+hand-added there is lost, and the place to add one is the `ALL` spread in write-once
+`host/main.tsx`. And `budgets.json` keeps whatever you wrote, which protects a tightened number
+and, in the other direction, means a deleted key silently reverts to the default at the next
+measurement because nothing rewrites the file to remind you.
+
+```bash
+flawless-react "src/app/**/page.tsx" --nextjs . --tasks unit-browser,perf-harness
+```
+
+**What it stops you getting wrong.** The headline is that **`budgets.json` is not a baseline**:
+the gates are warn-only and nothing is ever compared against a previous run, so "it passed the
+budget" means "it was under 50 ms and 16 renders", not "it did not regress". Baselines belong to
+the load plane, which has them. The rest is shared-state arithmetic: the browser specs and the
+perf specs both boot `bun host/server.ts` on `127.0.0.1:5173`, so a stuck host makes two planes
+look broken at once, and `--heaps` defaults to `stress` — snapshots land in `heaps/` only for the
+modes that ask for them.
+
+## `flawless-perf-static`
+
+**Loads when** a `perf/*` finding is on screen, or when a clean report is about to be trusted. The
+analyser is the tool's own, so this is the one skill whose rules are not borrowed from Biome.
+
+**What it knows.** The nine rules and their severities — and there is exactly one `error`,
+`perf/set-state-in-render`, which is also the only one that is never a style preference. Everything
+else warns, including the whole hook-drift trio: `perf/hook-missing-dependency`,
+`perf/hook-extraneous-dependency` and `perf/hook-missing-deps-array`. It knows where the findings
+land — one `reports/<Component>.perf-static.json` per component that owns a finding, so per-component
+files from earlier runs linger and a glob over `reports/` over-counts — and that the
+`<Component>.flawless.json` sidecar beside each source holds paths relative to itself.
+
+**What it stops you getting wrong.** That `perf/unresolved-prop` is not a style note: it means the
+generated spec passes `undefined` for that prop, and the fix is `--props` or the spec's `DEFAULTS`.
+And that a clean report is not proof, because the analyser abstains deliberately — it skips a hook
+whose deps contain member access or a spread, so the file it declines to judge is not a file it
+judged clean.
+
+## `flawless-a11y`
+
+**Loads when** an `a11y/*` finding is on screen, on web or under `--expo`. One task, one aggregate
+report, **two engines** — which is the whole reason this skill exists.
+
+**What it knows.** On web the engine is Biome's a11y group, run through the same scratch config as
+`react-rules`, so a finding is suppressible the ordinary way with a reason on the line above. On
+native it is the tool's own six rules — `a11y/unnamed-control`, `a11y/missing-role`,
+`a11y/textinput-unlabelled`, `a11y/label-text-mismatch`, `a11y/invalid-role` and one warning,
+`a11y/icon-unhidden` — and there is **no suppression mechanism at all** on that path.
+
+**What it stops you getting wrong.** Reaching for a `biome-ignore` comment on a native finding: it
+does nothing, and the finding stays. And reading `a11y/textinput-unlabelled` as satisfied by a
+placeholder, which it is not.
+
+## `flawless-react-rules`
+
+**Loads when** a Biome finding appears in `reports/react-rules.json`, or when the project's own
+Biome run disagrees with the tool's. The answer to the disagreement is in the report's own note:
+*local `biome.json` is bypassed*, deliberately — the sweep asks "does this React code have a known
+defect", not "does this repo agree with its own config".
+
+**What it knows.** The curated set: `recommended: false`, then `correctness` and `suspicious`
+enumerated rule by rule, errors except a warning tail (`noArrayIndexKey`, `noExplicitAny`,
+`noDoubleEquals`, `noEmptyBlockStatements` and friends). It knows `useExhaustiveDependencies` is
+the same question `perf-static` asks as `perf/hook-missing-dependency`, answered by an engine that
+shares no code with it — so a fix that silenced one is not evidence about the other. And that a
+`parse/*` diagnostic is pushed through the category filter on purpose: a file the analyser could
+not read is never a pass.
+
+**What it stops you getting wrong.** Two attribution errors. `useHookAtTopLevel` findings are
+`react-rules`; the hook-dependency drift findings are `perf-static` and prefixed `perf/`. And when
+`react-rules` reports nothing while your own `biome ci` reports a suppressed site, the suppression
+lives in a config the sweep never read.
 
 ## `flawless-findings`
 
-**Loads when** you are triaging a findings list after a run, deciding fix-versus-suppress, or
-a suppression shows up as "unused" — and it advertises REPORT.md's accounting, the `reports/`
-JSON and sidecars, and the suppression rules that keep your Biome and the tool's sweeps
-agreeing.
+**Loads when** you are triaging a findings list after a run, deciding fix-versus-suppress, or a
+suppression shows up as "unused" — and it advertises REPORT.md's accounting, the `reports/` JSON
+and sidecars, and the suppression rules that keep your Biome and the tool's sweeps agreeing. It is
+deliberately only the triage: what a given rule means lives with the plane that emitted it, in
+`flawless-perf-static`, `flawless-a11y` or `flawless-react-rules`.
 
-**What it knows.** Three tasks only report: `perf-static` runs the tool's own rules, `a11y`
-and `react-rules` are Biome sweeps with narrowed rule sets. Findings print as
-`file:line:col rule message` and land in `flawless/reports/*.json` — one aggregate per task
-plus per-component files, written **only for components that own findings**, so stale
-per-component reports from earlier runs linger. Trust the task summary counts, never a glob
+**What it knows.** Which task produced what, and how much to trust it. Three tasks only report:
+`perf-static` runs the tool's own rules, `a11y` and `react-rules` are Biome sweeps with narrowed
+rule sets. Findings print as `file:line:col rule message` and land in `flawless/reports/*.json` —
+one aggregate per task plus per-component files, written **only for components that own findings**,
+so stale per-component reports from earlier runs linger. Trust the task summary counts, never a glob
 over `reports/`.
 
 `REPORT.md` regenerates every run and describes the **last run, not the suite on disk**. Its
@@ -136,18 +223,22 @@ generated / refreshed / kept. A file count is not coverage.
 
 ### Triage in order, and stop before the advisory tail
 
-1. **`perf/set-state-in-render`** (error) — always real, fix first.
-2. **Hook dependencies.** `hook-extraneous-dependency` usually means the dep is never read:
-   remove it, or for a scroll-on-change effect make it real by reading it
-   (`if (messages.length === 0) return;`). For `hook-missing-dependency`, wrap the function in
+1. **`perf/set-state-in-render`** (perf-static) — the analyser's only error, always real, fix first.
+2. **`react-rules` errors** — `useHookAtTopLevel` especially: a hook behind an early return changes
+   hook order between renders and React throws on the state update after it.
+3. **Hook dependencies.** Two engines, one question: Biome answers it as `useExhaustiveDependencies`
+   and the analyser as `perf/hook-missing-dependency` / `perf/hook-extraneous-dependency`. They share
+   no implementation, so a fix that silenced one is not evidence about the other. An extraneous dep
+   usually means the dep is never read: remove it, or for a scroll-on-change effect make it real by
+   reading it (`if (messages.length === 0) return;`). For a missing one, wrap the function in
    `useCallback` and add it rather than suppressing.
-3. **`perf/unstable-child-prop`** — a real win when the child is memoised or heavy (a
+4. **`perf/unstable-child-prop`** — a real win when the child is memoised or heavy (a
    third-party `<Sonner>`, a memo'd list): hoist static objects and arrays to module scope,
    and leave inline arrows to plain DOM elements alone.
-4. **`noArrayIndexKey`** — real for editable lists (a client-side id at creation, keyed on,
-   stripped at submit); a reasoned suppression for server-static lists, or where the index
-   *is* the identity.
-5. **`perf/unresolved-prop`, `no-memoisation-with-children`, `missing-memo-leaf`** — advisory.
+5. **`noArrayIndexKey`** (react-rules, a warning) — real for editable lists (a client-side id at
+   creation, keyed on, stripped at submit); a reasoned suppression for server-static lists, or where
+   the index *is* the identity.
+6. **`perf/unresolved-prop`, `no-memoisation-with-children`, `missing-memo-leaf`** — advisory.
    Fix where profiling agrees; chasing them to zero is churn, not performance.
 
 ### A suppression is an answer — and it can be "unused" on the other side
@@ -176,22 +267,25 @@ analyser seeing new components, not regressions — check the components count f
 
 ## Installing them
 
-Plain directories. Copy them out of the tool's repository into the project's
-`.claude/skills/` (checked in, shared with the repo) or the user-level `~/.claude/skills/`
-(every project on this machine); project scope wins when both exist.
-
 ```bash
-cp -R /path/to/flawless-react/.claude/skills/flawless-{unit-browser,findings} .claude/skills/
+flawless-react skills install --select flawless-unit-browser,flawless-perf-harness
+flawless-react skills install --select flawless-perf-static,flawless-a11y,flawless-react-rules
+flawless-react skills list            # current / edited / missing, in both scopes
 ```
 
-**A stale copy is worse than none.** The repository copy is the source of truth and moves
-when the tool moves: FR-027 retired the async `cn` stub, FR-016 split the registry, and two
-of the three `TODO(flawless)` kinds are now answered automatically. A copy predating those
-loads with the same confidence as a current one and is wrong exactly where you reached for
-it. Re-copy after every upgrade, and if you keep both scopes, diff them.
+Each skill is written once, to `.agents/skills/<name>/SKILL.md`, with its own link at
+`.claude/skills/<name>`; `flawless-findings` and `flawless-load` install the same way. Project
+scope wins when both a project and a user copy exist.
+
+> **A stale copy is worse than none.** The repository copy is the source of truth and moves
+> when the tool moves: FR-027 retired the async `cn` stub, FR-016 split the registry, and two
+> of the three `TODO(flawless)` kinds are now answered automatically. A copy predating those
+> loads with the same confidence as a current one and is wrong exactly where you reached for
+> it — `skills list` reports it as `edited`, and `install` will not overwrite it without
+> `--force`. Re-run the installer after every upgrade, and if you keep both scopes, check both.
 
 ## Related
 
-- [Agent skills](/docs/agent-skills/) — all six, and what each one covers
+- [Agent skills](/docs/agent-skills/) — all fourteen, and what each one covers
 - [Colocated specs](/docs/recipes/colocated-specs/) — the stamp, hand-hardening, what a re-run keeps
 - [Triage the findings](/docs/recipes/triage-findings/) — the same burn-down for a human reader

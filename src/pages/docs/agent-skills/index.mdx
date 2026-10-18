@@ -1,7 +1,7 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Agent skills
-description: The seven agent skills flawless-react ships in .agents/skills — what each one knows, when an agent loads it, how `flawless-react skills install` puts them in place, and why a stale copy is worse than none.
+description: The fourteen agent skills flawless-react ships in .agents/skills — what each one knows, when an agent loads it, how `flawless-react skills install` puts them in place, and why a stale copy is worse than none.
 ---
 
 ## What these are
@@ -11,7 +11,7 @@ descriptions, and when a task matches one it loads that file's full contents int
 working context. Nothing runs; nothing is fetched. It is documentation with a trigger
 condition attached.
 
-flawless-react ships **seven** of them, in `.agents/skills/` in the tool's own repository —
+flawless-react ships **fourteen** of them, in `.agents/skills/` in the tool's own repository —
 the directory Claude Code, Codex, Cursor and OpenCode all read.
 They exist because the failure modes on this site are not discoverable from the CLI's
 `--help`. An agent that has never seen this documentation will point the tool at a glob,
@@ -21,20 +21,32 @@ write-once, why a load run reporting a healthy p95 might have measured a login f
 an unused suppression means, and when a marker is the tool being honest rather than a gap
 to paper over.
 
-## The seven
+## The fourteen
+
+One skill per feature area. `flawless-react` is the umbrella and router; the rest go a
+level deeper into a single plane, because the question an agent arrives with is usually
+about one plane: why this route spec passed while measuring a login form, why a perf
+budget warns instead of failing, which findings are suppressible.
 
 | Skill | Loads when | What it carries |
 | --- | --- | --- |
-| `flawless-react` | Adding component, e2e or load tests to a React codebase; a generated suite is red; "scaffold tests for this component" | The umbrella: task selection, Next.js mode, provider wrappers, MSW fixtures from an OpenAPI spec, colocated specs, and pointers into the six below |
+| `flawless-react` | Adding component, e2e or load tests to a React codebase; a generated suite is red; "scaffold tests for this component" | The map: task selection, Next.js and Expo modes, provider wrappers, MSW fixtures from an OpenAPI spec, colocated specs, and a situation-to-skill table into the thirteen below |
+| `flawless-nextjs` | `--nextjs` output looks wrong: a provider vanished, the host will not boot, a spec dies on `import.meta.env` or `process.auth` | How providers are derived and when the tool deliberately drops one, the module-stub ladder where a named stub outranks a pattern one, the Testing Library pins per React major, the `package.json` merge, and the two `.env` load orders |
+| `flawless-api-fixtures` | Choosing `--api` or `--swagger-url`, or a fixture body looks invented | The swagger probe and where its result is (and is not) refreshed, path normalisation into MSW patterns, and exactly how a body is synthesised when your spec carries no example |
 | `flawless-regen` | Before regenerating over an adopted suite, after upgrading the tool, or when a `--changed` run appears to have done nothing | The generated / refreshed / kept lifecycle, what a re-run rewrites versus keeps, `--force`'s merge semantics and the colocated stamp, and proving a run happened from the result JSON rather than stdout |
 | `flawless-unit-browser` | A generated unit or browser spec is red; filling TODOs after a run; a browser spec reports "unknown component" | What the generated specs assert, the provider wrapper and its write-once fixtures, the mock allowlist, answering `test.skip` and `TODO(flawless)` markers, and registering a component in the browser host |
-| `flawless-findings` | Triaging a findings list; deciding fix-versus-suppress; a suppression shows up as unused | perf-static, a11y and react-rules findings, REPORT.md's accounting, the `reports/` JSON and sidecars, and the suppression rules that keep your Biome and the tool's sweeps agreeing |
-| `flawless-e2e-load` | Right before `flawless:e2e` or `flawless:load`; pipes report suspiciously fast p95s; e2e fails at global setup | Seeded-DB prerequisites, the global-setup login, `params.json` ids, `LOAD_BASE`/`LOAD_AUTH`, baselines, and the anti-vacuous probes that decide whether the numbers mean anything |
-| `flawless-expo` | Generating or fixing native specs; a native suite is red; deciding whether a task refusal is a bug or the design | What `--expo` detects, which tasks run and which refuse, the jest-expo + `@testing-library/react-native` unit plane, `renderRouter` versus `render`, the native selector ladder and why a skip is a skip, and the version pairing that has to be exact |
+| `flawless-perf-harness` | Working in `flawless/host` or `flawless/profile`, touching `budgets.json`, or anything on port 5173 | Which files are write-once, why the budgets gate only warns and there is no baseline to compare against, `--heaps`, and the one dev server the browser and perf planes share |
+| `flawless-perf-static` | A `perf/*` finding is on screen, or a clean report is being trusted | The nine rules and their severities, the sidecar layout, the suppressions that cost nothing, and why "0.1 dep(s) flagged, 0.0 skipped" is the honest denominator |
+| `flawless-a11y` | An `a11y/*` finding is on screen, on web or under `--expo` | Two engines behind one report: Biome's a11y group on web, suppressible per source line; the tool's own six rules on native, suppressible nowhere |
+| `flawless-react-rules` | A Biome `correctness`/`suspicious` finding appears in `reports/react-rules.json`, or the project's own Biome disagrees | The curated set, why a local `biome.json` is bypassed by a scratch config, which rule names are not what they appear to belong to, and the suppression file the report drops silently |
+| `flawless-findings` | Triaging a findings list; deciding fix-versus-suppress; a suppression shows up as unused | REPORT.md's accounting, the `reports/` JSON and sidecars, what each suppression costs, the counts ledger that only checks the four tasks with a rule table, and which plane to load next |
+| `flawless-e2e` | Right before `flawless:e2e`; e2e fails at global setup; a route spec passes on suspiciously little | Seeded-DB prerequisites, the global-setup login and its guard, `params.json` ids and landings, and the probes that decide whether a pass means a render |
+| `flawless-load` | Right before `flawless:load`; pipes report suspiciously fast p95s | `routes.pipes`, `env.sh`, `LOAD_BASE`/`LOAD_AUTH`, `routes.setup.ts` refusing rather than measuring a 404 handler, and the load plane's real baselines |
+| `flawless-expo` | Generating or fixing native specs; a native suite is red; deciding whether a task refusal is a bug or the design | What `--expo` detects, which tasks run and which refuse, the jest-expo + `@testing-library/react-native` unit plane, `renderRouter` versus `render`, the native selector ladder and why a skip is a skip |
 | `flawless-api` | Scripting suite generation, building a custom report, or embedding the tool in another workflow | `runFlawless`/`runCore` options and results, the exit-code and error contracts, the `analyse()`/`ComponentTree` surface, the tasks registry, and the `--ci` JSON contract |
 
-Each links onward to the others, so loading one usually pulls the right neighbour when the
-task turns out to be somewhere else.
+Each links onward to its siblings, so loading one usually pulls the right neighbour when
+the task turns out to be somewhere else.
 
 ## Installing them
 
@@ -54,8 +66,8 @@ file, so it gets a link per skill rather than a directory of things it was not a
 to load. That is why the install reports two counts:
 
 ```
-✔ installed 3, up-to-date 4 → /repo/.agents/skills
-  linked 3 into /repo/.claude/skills for Claude Code
+✔ installed 14 → /repo/.agents/skills
+  linked 14 into /repo/.claude/skills for Claude Code
 ```
 
 Project scope wins when both exist, which is what you want: a repo that has adopted
@@ -89,7 +101,11 @@ read these docs and skip the skills entirely.
 
 ## Related
 
-- [Suite generation and regeneration](/docs/agent-skills/suite-generation/) — `flawless-react` and `flawless-regen` in full
-- [Specs and findings](/docs/agent-skills/specs-and-findings/) — `flawless-unit-browser` and `flawless-findings`
-- [E2E, load and the API](/docs/agent-skills/e2e-load-and-api/) — `flawless-e2e-load` and `flawless-api`
+- [Suite generation and regeneration](/docs/agent-skills/suite-generation/) — `flawless-react`,
+  `flawless-nextjs`, `flawless-api-fixtures` and `flawless-regen` in full
+- [Specs and findings](/docs/agent-skills/specs-and-findings/) — `flawless-unit-browser`,
+  `flawless-perf-harness`, `flawless-perf-static`, `flawless-a11y`, `flawless-react-rules`
+  and `flawless-findings`
+- [Route tests, load, native and the API](/docs/agent-skills/e2e-load-and-api/) —
+  `flawless-e2e`, `flawless-load`, `flawless-expo` and `flawless-api`
 - [Recipes](/docs/recipes/) — the same workflows written for a human reader

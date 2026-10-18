@@ -1,31 +1,32 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
-title: E2E, load and the API
-description: The flawless-e2e-load and flawless-api skills — the global-setup login guard, LOAD_BASE and LOAD_AUTH, the anti-vacuous probes, and the runFlawless, testRun and --ci contracts.
+title: Route tests, load, native and the API
+description: The flawless-e2e, flawless-load, flawless-expo and flawless-api skills — the global-setup login guard, params.json ids and landings, LOAD_BASE and LOAD_AUTH, the anti-vacuous probes and real baselines, what --expo refuses, and the runFlawless, testRun and --ci contracts.
 ---
 
-Two of the seven skills in `.claude/skills/` cover what happens outside the generator: the
-suites that hit your real app, and the surface you drive the tool from when nobody reads a
-terminal. Both guard one failure — a number that looks like an answer and is about nothing.
-
-## flawless-e2e-load
-
-**Loads when** you are about to run `flawless:e2e` or `flawless:load`, when pipes report
-suspiciously fast p95s, or when e2e fails at global setup.
-
-**Knows** the seeded-DB prerequisites, the global-setup login, `params.json` ids, `env.sh`,
-`LOAD_BASE`/`LOAD_AUTH`, baselines, and the anti-vacuous probes that decide whether the
-numbers mean anything. Its premise: both suites run against the **real app** — e2e because
-MSW cannot intercept a server component's database access, load because measuring anything
-else is fiction. That realism is where every vacuous pass hides.
-
-Both suites need a route table — `--nextjs`, or `--expo` with `expo-router` — and are emitted together so they share `params.json`:
+Four of the fourteen skills in `.agents/skills/` cover what happens outside the generator: the
+suites that hit your real app, the native plane that needs a real device, and the surface you drive
+the tool from when nobody reads a terminal. Three of them guard the same failure — a number that
+looks like an answer and is about nothing.
 
 ```bash
 flawless-react "src/**/*.tsx" --nextjs . --tasks e2e,load --no-interactive
 ```
 
-After that, the e2e prerequisites are ordered:
+Both route suites need a route table — `--nextjs`, or `--expo` with `expo-router` — and are emitted
+together so they share `params.json`. Which half of this page is about which one: `flawless-e2e`
+owns the specs, the login and the ids; `flawless-load` owns the crust pipes and their baselines.
+They share a directory and nothing else.
+
+## `flawless-e2e`
+
+**Loads when** you are about to run `flawless:e2e`, when e2e fails at global setup, or when a route
+spec passes on suspiciously little.
+
+**Knows** the seeded-DB prerequisites, the global-setup login and its guard, `params.json` ids and
+landings, and the probes that decide whether a pass means a render. Its premise: this suite runs
+against the **real app**, because MSW cannot intercept a server component's direct database access
+and mocking it would be a lie. That realism is where every vacuous pass hides.
 
 ```bash
 bun run db:up && bun run db:migrate && bun run db:seed   # Postgres + seed users
@@ -33,7 +34,7 @@ bun run dev:web                                          # app on :3001
 bun run flawless:e2e
 ```
 
-### 1. The login guard is the test, not an obstacle
+### The login guard is the test, not an obstacle
 
 `flawless/e2e/global-setup.ts` is where you sign in as the seeded user and persist
 `storageState` to `e2e/.auth.json`. The tool emits a **stub** writing an empty state — so
@@ -57,7 +58,21 @@ same write-once file, and a missing id fixture never fabricates a URL: the route
 emit a `test.skip` naming the file to fill (`no id fixture for /posts/[id] — fill
 flawless/e2e/params.json`), so the gap is a visible skip rather than a 404 measured as a pass.
 
-### 2. Load needs a production build and proven auth
+The resolver tries four things in order — a `FLAWLESS_E2E_<PARAM>` environment override, the
+per-route entry for a segment set that has to be consistent, `defaults`, and the legacy
+`FLAWLESS_E2E_ID` escape hatch — and a `params.json` you have broken by hand fails the run with
+`is not valid JSON` rather than being quietly replaced, because its contents are yours.
+
+## `flawless-load`
+
+**Loads when** you are about to run `flawless:load`, or when pipes report suspiciously fast p95s.
+
+**Knows** `routes.pipes`, `LOAD_BASE` and `LOAD_AUTH`, the setup module that seeds the ids, the
+baselines that live here and nowhere else in the tool, and the probes that decide whether the
+numbers mean anything. Its premise is the same realism with a sharper edge: measuring anything
+other than a production build is fiction.
+
+### A production build and proven auth
 
 ```bash
 bun run build:web && PORT=3001 bunx next start &         # PROD build on :3001
@@ -83,7 +98,7 @@ enforced, not advised. An expired cookie redirects to a login page answering 200
 20/20 status 200, p50 19.7 ms, exit 0, every request served `/login`. It is **write-once**,
 so a check that knows your app survives.
 
-### 3. A green pipe run means nothing until you have probed it
+### A green pipe run means nothing until you have probed it
 
 A load pipe has no landing assertion of its own, and `crust` will report a fast, green p95
 for 500 redirects to a login page. Run these **before** the pipes:
@@ -100,7 +115,32 @@ against baseline-&lt;name&gt;.json; a missing baseline passes **by design** beca
 arms it, and you arm one by copying a good last-&lt;name&gt;.json. Refresh only when you can
 explain the shift in the commit body, never a batch to turn a red run green.
 
-## flawless-api
+## `flawless-expo`
+
+**Loads when** generating or fixing native specs, when a native suite is red, or when deciding
+whether a task refusal is a bug or the design. It is the largest skill in the corpus because a
+React Native plane disagrees with the web assumptions everywhere the web plane took them for
+granted.
+
+**What it knows.** What `--expo` detects and what each reading changes: `sdkMajor`, because
+jest-expo's major must match the project's own; `routerRoot`, `app/` or `src/app/` and only when
+`expo-router` is actually a dependency; `reactCompiler`, which turns three `perf-static` rules into
+advice about work the compiler already did — on the dogfood app 136 of 168 findings were exactly
+those three; `nativewind`; and `webPort`, which is Metro's 8081 and not 3000. Three spec shapes are
+chosen from the file, the navigation context is always the object form, `fireEvent` in route specs
+and `userEvent` in component specs, and no emitted spec touches the network.
+
+**What it stops you getting wrong.** That **a skip is not a gap**: a screen the selector ladder
+cannot reach emits a skip naming what it needed, and the ladder — `testID`, then accessibility
+label, then text — is what you extend by giving the element an identifier, not by deleting the
+assertion. And that `perf-harness` refusing is **measured-and-declined, not deferred**: an
+expo-router app's population is route screens, which a browser host cannot mount, so the measured
+ceiling was about zero of 32 components. The refusal names the evidence and the condition that
+would reopen it. Route e2e does run here, against `expo start --web`, with a third assertion the
+Next flavour does not need: a copy witness proving the screen's own longest proven literal
+rendered, because an auth wall rendered in place passes a landing check and fails that one.
+
+## `flawless-api`
 
 **Loads when** you are scripting suite generation (CI, sandboxes, agents), building a custom
 report over the analysis, or embedding the tool in another workflow.
@@ -187,22 +227,24 @@ task is one more entry in `src/tasks/index.ts`.
 
 ## Installing them
 
-Both are plain directories. Copy them out of the tool's repository into project or user
-scope; project scope wins when both exist.
-
 ```bash
-mkdir -p .claude/skills
-cp -R /path/to/flawless-react/.claude/skills/flawless-e2e-load .claude/skills/
-cp -R /path/to/flawless-react/.claude/skills/flawless-api ~/.claude/skills/
+flawless-react skills install --select flawless-e2e,flawless-load
+flawless-react skills install --select flawless-expo,flawless-api
+flawless-react skills list            # current / edited / missing, in both scopes
 ```
 
+Each skill is written once, to `.agents/skills/<name>/SKILL.md`, with its own link at
+`.claude/skills/<name>`, and project scope wins when both a project and a user copy exist.
+
 **A stale copy is worse than none.** The repository copy is the source of truth and moves
-when the tool moves: `flawless-e2e-load` already calls `env.sh` legacy, and a copy predating
-`routes.setup.ts` would send an agent to source a file that exports nothing. A stale skill
-loads with the same confidence as a current one. Re-copy after upgrading.
+when the tool moves: this pair of skills is the split of what used to be one file, and a copy
+predating `routes.setup.ts` would still send an agent to source `env.sh` — a file that exports
+nothing. A stale skill loads with the same confidence as a current one, which is why `skills list`
+reports a differing file as `edited` and `install` refuses to overwrite it without `--force`.
+Re-run the installer after upgrading.
 
 ## Related
 
-- [Agent skills](/docs/agent-skills/) — the other four, and why the tool ships them
+- [Agent skills](/docs/agent-skills/) — the other ten, and why the tool ships them
 - [Load pipes with crust](/docs/recipes/crust-load-pipes/) — the same probes and baselines, for a human reader
 - [Wire it into CI](/docs/recipes/ci-integration/) — the `--ci` contract in practice

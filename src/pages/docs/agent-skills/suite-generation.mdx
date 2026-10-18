@@ -1,15 +1,16 @@
 ---
 layout: ../../../layouts/DocsLayout.astro
 title: Suite generation and regeneration
-description: The flawless-react and flawless-regen skills in full — what each one knows, the task description that triggers it, and the mistakes it exists to stop.
+description: The flawless-react, flawless-nextjs, flawless-api-fixtures and flawless-regen skills in full — what each one knows, the task description that triggers it, and the mistakes it exists to stop.
 ---
 
-Two of the seven skills in `.claude/skills/` cover the loop of writing a suite and running the tool
+Four of the fourteen skills in `.agents/skills/` cover the loop of writing a suite and running the tool
 over it again. `flawless-react` is the umbrella — what an agent loads when asked to put tests on a
-component with no other context. `flawless-regen` is what it should load before touching a suite
-someone has already adopted. Both are plain markdown with two frontmatter keys, `name` and
-`description`; the description is the trigger, and if the task matches, the whole body goes into
-context.
+component with no other context. `flawless-nextjs` and `flawless-api-fixtures` are the two things
+that mode actually consists of: the derived provider wrapper, and where a fixture body comes from.
+`flawless-regen` is what an agent should load before touching a suite someone has already adopted.
+All are plain markdown with two frontmatter keys, `name` and `description`; the description is the
+trigger, and if the task matches, the whole body goes into context.
 
 ## `flawless-react`
 
@@ -19,8 +20,9 @@ Its description covers generating and maintaining React/Next.js test suites, and
 situations: **adding component, e2e or load tests to a React codebase**; **a generated flawless
 suite that is red**; and **"scaffold tests for this component" work**. It advertises its contents
 — task selection, Next.js mode, provider wrappers, MSW fixtures from an OpenAPI spec, colocated
-specs, route e2e, crust load pipes, the programmatic API, findings — then names the five sibling
-skills, so an agent that lands here on the wrong question is redirected.
+specs, route e2e, crust load pipes, the programmatic API, findings — then names all thirteen
+siblings and opens with a table mapping a situation to the skill that answers it, so an agent that
+lands here on the wrong question is redirected.
 
 ### What it knows
 
@@ -44,7 +46,9 @@ async server component importing `next/font` or `next/headers`, unusable under j
 builds `flawless/provider.tsx` from the JSX chain enclosing the children slot, keeping only
 `"use client"` components and literal attributes and turning what it drops into a `TODO(flawless)`
 comment. For catch-all APIs (Hono, tRPC) that static route walking cannot see, it points at
-`--api openapi.json`, with `--swagger-url=off` to skip the live spec probe.
+`--api openapi.json`, with `--swagger-url=off` to skip the live spec probe. Those two summaries
+are pointers now: the wrapper's rules belong to `flawless-nextjs`, the fixture's to
+`flawless-api-fixtures`.
 
 It then lists exactly what a generated unit spec asserts: the rendered root tag when the analyser
 could pin it down; `children` and `className` passthrough **only when the value provably reaches
@@ -80,6 +84,102 @@ the compiler. And `LOAD_AUTH` is a header line — for a cookie-session app that
 `cookie: session=&lt;value&gt;`, not a Bearer token. The failure you will not notice: an
 unauthenticated request to a dashboard route redirects to the login page, which answers 200, so
 every pipe passes while measuring the login form.
+
+## `flawless-nextjs`
+
+### When Claude loads it
+
+**A Next app's generated suite is red at import or at mount**, **a provider is missing from the
+wrap**, `Cannot read properties of null (reading 'useState')`, or **`pnpm run dev` died after
+installing test tooling**. It is the mode's own manual: the app-router resolver, the derived
+wrapper, the auth stub, module stubs, the React pins, the `package.json` merge and environment
+loading.
+
+### What it knows
+
+The wrapper is derived, not read. A `layout.tsx` is normally an async server component, so the
+tool walks the JSX that actually encloses `{children}` and keeps `"use client"` components with
+literal attributes. Every drop is written down where it will be read — a dropped attribute
+becomes a `TODO(flawless)` beside the wrapper, a dropped provider layer becomes a block at the
+top of the file with its reason and its fix — so the file means "the providers that could be
+mounted", not "the app's providers".
+
+The interesting drop is the deliberate one: a layer whose module directly imports an auth library
+is skipped rather than mounted, because the stub the unit and browser planes install for those
+same libraries is a **signed-out snapshot** — `isSignedIn: false`, `user: null`,
+`status: "unauthenticated"`, method-shaped keys resolving to another signed snapshot. Mount a
+provider that gates its children on a session against that and it renders nothing, and every spec
+below inherits a blank screen. So the red spec an agent is staring at is usually one *below* the
+drop, and the fix is `provider.fixtures.ts` or `--provider <file>`, never an edit to
+`provider.tsx` — which `--force` erases.
+
+The rest is the machinery around a mount: the module-stub ladder where **a named stub outranks a
+pattern stub**, why `next/script` gets an inert in-place stand-in and `next/head` deliberately
+does not, why the suite's React is pinned to the app's (`detectAppReact`) and why React 17 drags
+Testing Library back to `^12.1.5` — and repairs a stale 13+ range a previous run left behind. The
+`package.json` merge keeps your indentation and key order so generation produces a clean diff, and
+records the deps it adds in `pnpm.ignoredBuiltDependencies`, because pnpm 10 otherwise refuses the
+build-script decision and `ERR_PNPM_IGNORED_BUILDS` kills the app's own dev server. Two `.env`
+orders are documented because there are two runtimes: the Vitest config's, where a real environment
+variable beats every file and `.env.example` is last on purpose, and the host bundle's, which
+follows Next's development precedence.
+
+```bash
+# the app root is resolved, not assumed: apps/web, suite at apps/web/flawless
+flawless-react "src/app/dashboard/page.tsx" --nextjs apps/web --tasks unit-browser,e2e
+```
+
+### What it stops you getting wrong
+
+**Never hand-edit `flawless/provider.tsx` to add a provider**, and never read a provider drop's
+`TODO(flawless)` as settled while specs under that layer fail on a missing context — that is the
+same drop, still open. **Never mock a project module** to make a spec green: mocking a `cn`
+utility strips every className the assertions read, and mocking a UI primitive replaces the
+element an interaction test clicks. And **never treat a shim as a fix**: a library shim repairs
+the mount, not the component, so an API misuse the analyser could not see stays a red spec —
+correctly.
+
+## `flawless-api-fixtures`
+
+### When Claude loads it
+
+**Choosing between `--api` and `--swagger-url`**, or **a fixture body looks invented** — an object
+of zeroes, a 1970 timestamp, an array with one item. It is the story of where a mock response
+comes from, told once for the specs, the MSW handlers and the mock server.
+
+### What it knows
+
+A spec on disk (`--api openapi.json`) or a live one (`--swagger-url`, probed automatically in
+Next mode with a 1.5 s timeout, `--swagger-url=off` to skip it) beats static inference. The probe
+never throws: a non-2xx, a wrong content type or a dead port is reported and the run continues on
+inferred routes. Without any spec the tool walks `app/**/api/**/route.ts`, which is exactly the
+case a Hono or tRPC catch-all defeats — that is what `--api` exists for.
+
+Then the ownership table, because the two files behave oppositely: `flawless/swagger.json` is
+rewritten every run, while `flawless/mocks/handlers.ts` is written once and **not overwritten by
+`--force` either** — it is the file you edit, and the reason a body you fixed once stays fixed.
+The three MSW wiring points are named and bounded: `setupServer` in the Vitest setup, a service
+worker started before the host mounts for browser and perf specs, and neither of them reaching a
+server component, which is the honest reason `e2e` runs against the real app.
+
+And synthesis, which explains most empty-looking fixtures: per media type the tool takes `example`,
+then the first `examples[*].value`, then builds a body from the schema — every property of an
+object, exactly one item for an array, `""` for a string except `date-time`, `0` for a number,
+`false` for a boolean, the **first** member of an enum, `allOf` branches merged, `$ref` resolved
+only when it is local. A coded status is preferred and a `default` response is used last and
+counted as 200.
+
+```bash
+flawless-react "src/app/dashboard/page.tsx" --nextjs . --api openapi.json --swagger-url=off
+```
+
+### What it stops you getting wrong
+
+**A fixture of zeroes is a spec with no examples**, not a generator bug — the fix is an `example`
+in the spec, or the hand-edit in `handlers.ts` that nothing will overwrite, or both. **Do not
+assert a synthesised value as a contract**: it is a shape placeholder. **Do not hand-edit the
+handlers and expect a re-run to refresh them** — that file is yours after the first run, by
+design.
 
 ## `flawless-regen`
 
@@ -144,24 +244,29 @@ project's scripts and reports success.
 
 ## Installing them
 
-Both are directories. Copy them out of the tool's repository into project scope (checked in,
-shared with the repo) or user scope (every project on this machine); project scope wins when both
-exist.
+The installer writes them where an agent reads them, in either scope:
 
 ```bash
-mkdir -p .claude/skills
-cp -R /path/to/flawless-react/.claude/skills/flawless-{react,regen} .claude/skills/
-cp -R /path/to/flawless-react/.claude/skills/flawless-{react,regen} ~/.claude/skills/
+flawless-react skills install --select flawless-react,flawless-nextjs,flawless-api-fixtures,flawless-regen
+flawless-react skills install          # a menu, when you are not sure yet
+flawless-react skills list             # current / edited / missing, in both scopes
 ```
 
-> **A stale copy is worse than none.** The copy in the tool's repository is the source of truth,
-> and it moves when the tool moves — `flawless-regen` alone describes a contract that changed
-> twice. An outdated copy is loaded with exactly the same confidence as a current one, and it will
-> be wrong in the situation you reached for it. Re-copy after every upgrade; if you keep both
-> scopes, diff them.
+Each goes to `.agents/skills/<name>/SKILL.md` plus its own link at `.claude/skills/<name>`, and
+project scope wins when both a project and a user copy exist. `npm install` asks whether to
+install them; an interactive `flawless-react` run asks once at the end and stops asking as soon
+as the project has one. `FLAWLESS_NO_SKILLS=1` silences both.
+
+> **A stale copy is worse than none.** The repository copy is the source of truth and it moves
+> when the tool moves — `flawless-regen` alone describes a contract that changed twice. An
+> outdated copy is loaded with exactly the same confidence as a current one, and it will be wrong
+> in the situation you reached for it. That is what `skills list` is for: a file whose bytes
+> differ from the copy embedded in your binary is reported as `edited`, and `install` refuses to
+> overwrite it without `--force`. Re-run the installer after every upgrade; if you keep both
+> scopes, check both.
 
 ## Related
 
-- [Agent skills](/docs/agent-skills/) — all six, and why the tool ships them
+- [Agent skills](/docs/agent-skills/) — all fourteen, and why the tool ships them
 - [Your first suite](/docs/recipes/first-suite/) — the generation loop these skills describe, for a human reader
 - [Regenerate without losing work](/docs/recipes/safe-regeneration/) — the same lifecycle table, with the diffs to expect
