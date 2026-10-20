@@ -23,9 +23,13 @@ The source package needs Bun >= 1.1, and every task works with no further setup 
 One caveat before you pick the binary: it is self-contained Bun, but it cannot carry biome
 inside itself. `perf-harness`, `unit-browser` and `perf-static` work anywhere; `a11y` and
 `react-rules` shell out to biome and look for it in the project you are scanning
-(`node_modules/.bin/biome`) and then on `PATH`. Any React codebase that already lints with
-biome satisfies that for free — otherwise run `bun add -d @biomejs/biome` in that project, or
-use the source package. See [Install](/docs/install/) for the full comparison.
+(`node_modules/.bin/biome`), every ancestor workspace root, and then on `PATH`. It has to be
+**biome 2** — those sweeps write a biome 2 linter config and read its JSON reporter, so a
+candidate of another major is walked past in favour of one that can read it, and if none can,
+the task fails naming the version and path it refused rather than reporting a sweep it never
+made. Any React codebase that already lints with biome 2 satisfies that for free — otherwise
+run `bun add -d @biomejs/biome` in that project, or use the source package. See
+[Install](/docs/install/) for the full comparison.
 
 With the source package you can also skip the install entirely and use `bunx flawless-react`,
 which is what the commands below do.

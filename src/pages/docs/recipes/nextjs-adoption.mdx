@@ -143,7 +143,7 @@ Run once without a spec, then again with `--api`, and the second run reports `en
 | `--colocate` | off | Specs beside your sources; changes which spelling of `flawless:unit` is merged. |
 | `--force` | off | Refreshes `provider.tsx`, colocated specs, e2e route specs. Never `handlers.ts` or `provider.fixtures.ts`. |
 
-One thing no flag fixes: `a11y` and `react-rules` shell out to biome, which the **standalone binary cannot carry inside itself** — it looks for `node_modules/.bin/biome` in the project being scanned, then on `PATH`. An app already linting with biome satisfies that; otherwise `bun add -d @biomejs/biome` there, or take the source package ([Install](/docs/install/)).
+One thing no flag fixes: `a11y` and `react-rules` shell out to biome, which the **standalone binary cannot carry inside itself** — it looks for `node_modules/.bin/biome` in the project being scanned, every ancestor workspace root, then on `PATH`, and it needs **biome 2**: the sweeps write a biome 2 config and parse its JSON reporter, so a binary of another major is skipped in favour of one that can read the config, and a repo whose only biome is a 1.x gets a failure naming it, not a clean sweep. An app already linting with biome 2 satisfies that; otherwise `bun add -d @biomejs/biome` there, or take the source package ([Install](/docs/install/)).
 
 ## Where the files land
 

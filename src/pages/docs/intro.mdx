@@ -84,7 +84,7 @@ Two channels, and unlike most tools they genuinely ship different things. Pick b
 
 <InstallBlock />
 
-`perf-harness`, `unit-browser`, `perf-static`, `e2e` and `load` work anywhere with this. The binary is self-contained Bun, but it cannot carry biome inside itself, so `a11y` and `react-rules` shell out to it: they look for biome in the project being scanned (`node_modules/.bin/biome`), then on `PATH`. Any React codebase that already lints with biome satisfies that for free.
+`perf-harness`, `unit-browser`, `perf-static`, `e2e` and `load` work anywhere with this. The binary is self-contained Bun, but it cannot carry biome inside itself, so `a11y` and `react-rules` shell out to it: they look for biome in the project being scanned (`node_modules/.bin/biome`), every ancestor workspace root, then on `PATH` — and it has to be **biome 2**, because the sweeps write a biome 2 linter config and parse its JSON reporter. A candidate of another major is walked past in favour of one that can read it; if none can, the task fails naming the version and path it refused, since a foreign reporter cannot produce findings those tasks read. Any React codebase that already lints with biome 2 satisfies that for free.
 
 **Source package** — needs Bun 1.1 or newer at runtime, and every task works with no further setup because `@biomejs/biome` comes along as a real dependency:
 
