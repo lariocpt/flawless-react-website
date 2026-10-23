@@ -43,6 +43,12 @@ hardening move: replace the emitted empty cast in `initialState` with a real see
 mirroring your app's seed data, so specs mount the way the app renders — authenticated,
 themed, populated.
 
+In plain (non-Next) mode there is no `provider.tsx`: every render opens with a derived nest
+instead, imported under `__Prov`-prefixed bindings — the app's own providers found by hook call,
+namespace compound and transitive requirement, convention matches for bare-module hooks
+(`useTheme` → the exported `ThemeProvider` that renders that module's binding), and generated
+shims for library contexts. `--provider` sits outside that nest.
+
 ```ts
 initialState: {
   user: { id: "…", email: "trustee@demo.local", name: "…", /* seed persona */ },

@@ -639,6 +639,45 @@ Element lookups prefer `getByTestId`, then `getByLabelText` for an `aria-label`,
 with the accessible name, then an ID or text query. That ordering means the generated tests break
 for the right reasons — a changed class name does not fail them, a removed accessible name does.
 
+### The derived provider wraps
+
+Under a real layout a component mounts inside its theme, router, query and app-context providers;
+mounted bare it answers `useSidebar must be used within a SidebarProvider` instead of findings. So
+every render opens with a derived nest — in the unit specs and in the perf host's registry alike —
+imported under a `__Prov` prefix so it can never collide with a spec's own imports.
+
+The derivations, strongest evidence first:
+
+- **Hook call** — `useSidebar` → the `SidebarProvider` exported by the file the hook's import
+  resolves to, or by the component's own file; only that file's provider counts, so an unrelated
+  `FooProvider` elsewhere never catches an unrelated `useFoo` caller.
+- **Namespace compound** — `CommandInput` renders `CommandPrimitive.Input` and needs the same
+  file's `<Command>` mounted around it.
+- **Transitive requirement** — `AppSidebar` never calls `useSidebar`, its `<Sidebar>` child does;
+  whatever a component renders, it must satisfy too.
+
+A hook arriving from a bare module has no project file to join on, so it pairs by convention
+instead: an exported component named after the hook (`useTheme` → `ThemeProvider`) that renders a
+binding imported from the hook's own module. All three conjuncts or no wrap.
+
+Library contexts the app cannot supply get generated shims:
+
+- `@tanstack/react-query` → `FlawlessQueryClientProvider` — a fresh `QueryClient` per mount,
+  `retry: false`
+- `react-router(-dom)` hooks, `<Link>` / `<NavLink>` / `<Navigate>` / `<Outlet>` →
+  `FlawlessRouterProvider` — a `MemoryRouter`
+- the data-router hooks (`useLoaderData`…), `<Form>`, `<ScrollRestoration>` →
+  `FlawlessDataRouterProvider` — `createMemoryRouter` + `RouterProvider`; supersedes the
+  `MemoryRouter` wrap, needs router ≥ 6.4
+- `react-hook-form` → `FlawlessFormProvider` — an empty form, fresh per mount
+- `react-intl` hooks, `<FormattedMessage>` and friends → `FlawlessIntlProvider` — `locale="en"`,
+  nothing fetched
+
+The nest opens outermost-first: a provider that requires another sits outside it; ties keep
+alphabetical order; a true requirement cycle — the app is broken at that mount — falls back to
+alphabetical and fails red rather than guessing. Shim files live at the root of the importing
+package and are rewritten every run. Your `--provider` wrapper sits outside the whole nest.
+
 ## Colocated spec stamps
 
 With `--colocate` the unit specs are written beside your sources as

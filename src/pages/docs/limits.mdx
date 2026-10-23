@@ -84,9 +84,27 @@ The app's own middleware is an auth wall — Clerk's `auth.protect()`, a `next-a
 
 ### The component reads `useSelector` or `useContext` and throws "could not find … in the context"
 
-Pass `--provider <file>` pointing at a `.tsx` that default-exports a wrapper component containing your Redux Provider, QueryClientProvider, ThemeProvider, and so on. The host wraps every mounted component in it. Under `--nextjs`, the auto-derived wrapper skips any provider layer whose own module directly imports an auth library (`@clerk/*`, `next-auth`, `@supabase/auth-helpers-*`, `@supabase/ssr`): the unit and browser planes replace those libraries with a signed-out stub, so a provider that gates its children on a session renders *nothing* and every spec silently inherits the blank screen — while the stub already satisfies the context reads auth-consuming components make. Supply your own `--provider` if you want that layer mounted under test.
+Most of these contexts are already wrapped by the derived nest — the router (and its data-router
+variant), react-intl, the query client, and your app's own convention-named providers; if the
+mount still throws, the provider is one the derivation cannot see. Pass `--provider <file>`
+pointing at a `.tsx` that default-exports a wrapper component containing your Redux Provider,
+QueryClientProvider, ThemeProvider, and so on. It renders outside the derived nest, and both the
+host and the unit specs get it. Under `--nextjs`, the auto-derived wrapper skips any provider
+layer whose own module directly imports an auth library (`@clerk/*`, `next-auth`,
+`@supabase/auth-helpers-*`, `@supabase/ssr`): the unit and browser planes replace those libraries
+with a signed-out stub, so a provider that gates its children on a session renders *nothing* and
+every spec silently inherits the blank screen — while the stub already satisfies the context reads
+auth-consuming components make. Supply your own `--provider` if you want that layer mounted under
+test.
 
-A library context the app never supplies at all gets a substitute provider generated for it: React Query, React Router and react-hook-form are the three today, each wrapping in the shape that library's own test docs prescribe. So `useQuery` resolves against an empty client and `useFormContext` / `useController` / `useWatch` resolve against a fresh `useForm()` instead of the `null` the library dereferences. A component that supplies its own `control` or `client` outranks the substitute, which makes the wrap harmless when it was not needed.
+A library context the app never supplies at all gets a substitute provider generated for it:
+today that is React Query (a fresh `QueryClient` per mount, `retry: false`), React Router (a
+`MemoryRouter` — or `createMemoryRouter` + `RouterProvider` when the component uses the data
+router, which supersedes it and needs router ≥ 6.4), react-hook-form (a fresh empty `useForm()`),
+and react-intl (`locale="en"`, nothing fetched). So `useQuery` resolves against an empty client
+and `useFormContext` / `useController` / `useWatch` resolve against a form instead of the `null`
+the library dereferences. A component that supplies its own `control` or `client` outranks the
+substitute, which makes the wrap harmless when it was not needed.
 
 ### A spec skips and names the library in the reason
 
