@@ -27,6 +27,7 @@ The static analyser is deliberately narrow — it favours predictability over cl
 - **Variant distinctness needs a witness.** Each option has to render a different class list, and the witness is an element that carries a class. A component whose render carries none at all (Radix's `Toast.Root` hands jsdom one without) skips that test with the reason instead of failing every option in the table — a fact about the component, not a regression.
 - **What the perf and browser hosts stand in for.** They bundle a component without Next's router and without a database, so those get substitutes: `next/link`, `next/image`, `next/script` (an inert `script` element with `type="text/plain"` rendered in place — `src` is not fetched, inline code does not run, so third-party analytics stays out of a benchmark), `next/router` (navigation recorded, never performed) and a signed-out stub for the auth libraries. Database drivers resolve to an inert proxy, so a component that queries one renders with no data rather than not at all. A named substitute always outranks a package-pattern one for the same specifier. What is deliberately **not** invented is a chainable client: a component that awaits a real backend in a mount effect or a submit handler still rejects, and the plane says so. Green with fabricated rows is worse than red that names the cause.
 - **Children.** Locally-imported components (relative paths **and** tsconfig `paths` aliases) are walked. Anything from `node_modules`, or a TypeScript path alias that resolves into it, is skipped. Depth defaults to 3 and the walk is cycle-guarded.
+- **A component rendered from a hook.** `const { Component } = useTabs()` above `{Component && <Component />}` leaves the analyser no import to follow, so what that mount owes is derived by a bounded walk rather than a guess: the tag must be an uppercase name bound by shorthand or plain destructuring from a `useX()` call (`/^use[A-Z]/`, not a core hook) that resolves to a project file or sits beside the component, and the renderables are the hook body's own JSX plus **one** import hop into the top-level definition of each value identifier the body holds, read two levels deep inside that definition (array and object members step in, an arrow body steps into its return, `as const` / `satisfies` / parens unwrap for free) to sixteen components. Declined rather than guessed: an aliased or defaulted binding, a member-expression tag, and a value that is only *read* (`pick.Component ? … : null`), which is not a tag. The walk ends at a barrel that only *re-exports* the registry, because a re-export table declares nothing to walk — the same re-export hole the context chain hits when a barrel hands the library itself along. Both are named in the fix below rather than worked around.
 - **Hooks.** Detected by the name pattern `/^use[A-Z]/`, so custom hooks show up too. Hook detection is informational: it appears in spec output but does not yet drive different rerender strategies.
 
 ## Troubleshooting
@@ -86,7 +87,12 @@ The app's own middleware is an auth wall — Clerk's `auth.protect()`, a `next-a
 
 Most of these contexts are already wrapped by the derived nest — the router (and its data-router
 variant), react-intl, the query client, and your app's own convention-named providers; if the
-mount still throws, the provider is one the derivation cannot see. Pass `--provider <file>`
+mount still throws, the provider is one the derivation cannot see. That includes the component you
+never render by name: when the throw comes from inside a tab your app hands over as
+`<Component />` after `const { Component } = useTabs()`, the provider belongs to that tab, and the
+walk which would have found it is the bounded one the Limits list above records — it ends at a
+barrel that only *re-exports* the registry, and it declines an aliased, defaulted or
+member-expression tag rather than guessing at one. Pass `--provider <file>`
 pointing at a `.tsx` that default-exports a wrapper component containing your Redux Provider,
 QueryClientProvider, ThemeProvider, and so on. It renders outside the derived nest, and both the
 host and the unit specs get it. Under `--nextjs`, the auto-derived wrapper skips any provider

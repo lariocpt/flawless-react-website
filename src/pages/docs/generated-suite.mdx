@@ -655,9 +655,20 @@ The derivations, strongest evidence first:
   file's `<Command>` mounted around it.
 - **Transitive requirement** — `AppSidebar` never calls `useSidebar`, its `<Sidebar>` child does;
   whatever a component renders, it must satisfy too.
+- **Dynamic render** — `const { Component } = useTabs()` above `{Component && <Component />}`. The
+  tag is a value a project hook handed back, so there is no import for the analysis to walk and no
+  child edge for the closure to close over. The component owes every component the hook's values
+  can name: the hook body's own JSX tags, plus one import hop into the top-level definition of
+  each value identifier the body holds — the registry it selects from, where an array or object
+  member steps in, an arrow body steps into its return, and `as const` / `satisfies` / parens
+  unwrap for free, to sixteen components. The edge merges into the render-edge worklist before the
+  closure, so it orders, supersedes and cycles exactly like a statically rendered child: this is
+  how a spec that mounts a tab through `useTabs()` ends up inside the data router that tab needs.
 
-A hook arriving from a bare module has no project file to join on, so it pairs by convention
-instead: an exported component named after the hook (`useTheme` → `ThemeProvider`) that renders a
+A hook arriving from a bare module — node_modules, or a barrel that hands the library itself along
+instead of the project file behind it, the same walk-ending table the dynamic hop stops at — has no
+project file to join on, so it pairs by convention instead: an exported component named after the
+hook (`useTheme` → `ThemeProvider`) that renders a
 binding imported from the hook's own module. All three conjuncts or no wrap.
 
 Library contexts the app cannot supply get generated shims:

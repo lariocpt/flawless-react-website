@@ -45,7 +45,9 @@ themed, populated.
 
 In plain (non-Next) mode there is no `provider.tsx`: every render opens with a derived nest
 instead, imported under `__Prov`-prefixed bindings — the app's own providers found by hook call,
-namespace compound and transitive requirement, convention matches for bare-module hooks
+namespace compound, transitive requirement and dynamic render (a `<Component />` whose tag a
+project hook handed back owes whatever that hook's values can name), convention matches for
+bare-module hooks
 (`useTheme` → the exported `ThemeProvider` that renders that module's binding), and generated
 shims for library contexts. `--provider` sits outside that nest.
 
