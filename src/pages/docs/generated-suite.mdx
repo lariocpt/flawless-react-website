@@ -591,6 +591,16 @@ otherwise surface as a mysterious red suite:
   `getAnimations` (framer-motion-style cleanup). Plus an inert-but-complete Web Audio graph:
   jsdom ships no `AudioContext`, and a "play a sound on click" hook that constructs one kills
   the whole run rc=1 — an unhandled rejection — even when every test passed.
+  Canvas is answered with a **recording** 2D context. jsdom's `HTMLCanvasElement.getContext`
+  logs `Not implemented` and throws, so a chart, sparkline or signature pad used to take its
+  entire spec file down with it — 45 occurrences across two corpus apps, and in one of them 27
+  of the 50 spec files reported *zero* tests, none of it the app's fault. Every documented 2d
+  method exists and counts itself into `canvas.getContext("2d").__flawlessDraws()`, so a spec
+  can assert **that** the component drew. Nothing here claims **what** it drew — there are no
+  pixels, no compositing and no font metrics — and `webgl`/`webgl2` answer `null` rather than a
+  fake GPU: "no GPU context" is a state real browsers hand out daily and apps already branch
+  on, while a fake one would let a shader component run to a result nobody measured. The
+  function being replaced stays reachable as `__flawlessRealGetContext`.
 - **Auth-library shims.** When any analysed component imports an auth library, its deterministic
   `vi.mock` rides here rather than in every spec — the shim has to be in place before module
   bodies run, and per-spec placement races the import graph.
