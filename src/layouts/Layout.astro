@@ -14,6 +14,8 @@ const {
 } = Astro.props;
 
 const canonical = new URL(Astro.url.pathname, Astro.site).toString();
+import { href } from '../lib/site';
+
 ---
 
 <!doctype html>
@@ -25,8 +27,8 @@ const canonical = new URL(Astro.url.pathname, Astro.site).toString();
 		<title>{title}</title>
 		<meta name="description" content={description} />
 		<link rel="canonical" href={canonical} />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
+		<link rel="icon" type="image/svg+xml" href={href('/favicon.svg')} />
+		<link rel="icon" href={href('/favicon.ico')} />
 
 		<meta property="og:title" content={title} />
 		<meta property="og:description" content={description} />

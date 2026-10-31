@@ -2,6 +2,8 @@
 import Layout from '../layouts/Layout.astro';
 import Hero from '../components/Hero.astro';
 import FeatureCard from '../components/FeatureCard.astro';
+import { href } from '../lib/site';
+
 ---
 
 <Layout>
@@ -77,7 +79,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 				whether the machine has Bun.
 			</p>
 			<div class="recipe-grid">
-				<a class="recipe" href="/docs/install/">
+				<a class="recipe" href={href('/docs/install/')}>
 					<h3>Standalone binary</h3>
 					<p>
 						No Bun needed, nothing to install alongside it. Three tasks work anywhere;
@@ -85,7 +87,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">How to install →</span>
 				</a>
-				<a class="recipe" href="/docs/install/">
+				<a class="recipe" href={href('/docs/install/')}>
 					<h3>Source package</h3>
 					<p>
 						<code>bun add -g flawless-react</code> from the local registry. Needs Bun, but
@@ -93,7 +95,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">How to install →</span>
 				</a>
-				<a class="recipe" href="/docs/generated-suite/">
+				<a class="recipe" href={href('/docs/generated-suite/')}>
 					<h3>What gets generated</h3>
 					<p>
 						Every file the scaffolders emit, and what each one is for — configs, host
@@ -101,7 +103,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Read →</span>
 				</a>
-				<a class="recipe" href="/docs/architecture/">
+				<a class="recipe" href={href('/docs/architecture/')}>
 					<h3>Architecture</h3>
 					<p>
 						Why analyse and scaffold are two phases, what each produces, and what is
@@ -109,7 +111,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Read →</span>
 				</a>
-				<a class="recipe" href="/docs/extending/">
+				<a class="recipe" href={href('/docs/extending/')}>
 					<h3>Extending a suite</h3>
 					<p>
 						Mount inside a provider, mock data sources, turn the budgets into hard
@@ -117,7 +119,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Read →</span>
 				</a>
-				<a class="recipe" href="/docs/recipes/">
+				<a class="recipe" href={href('/docs/recipes/')}>
 					<h3>Recipes</h3>
 					<p>
 						Ten task-shaped walkthroughs — first suite, Next.js adoption, mocks with real
@@ -125,7 +127,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 					</p>
 					<span class="more">Browse recipes →</span>
 				</a>
-				<a class="recipe" href="/docs/agent-skills/">
+				<a class="recipe" href={href('/docs/agent-skills/')}>
 					<h3>Agent skills</h3>
 					<p>
 						Fourteen skills ship with the tool, one per feature area, and
@@ -144,7 +146,7 @@ import FeatureCard from '../components/FeatureCard.astro';
 			<h2>Point it at a component.</h2>
 			<p>Install in one curl, then run it against a .tsx file and read what comes back.</p>
 			<div class="cta-actions">
-				<a class="btn primary" href="/docs/intro/">Get started</a>
+				<a class="btn primary" href={href('/docs/intro/')}>Get started</a>
 			</div>
 		</div>
 	</section>

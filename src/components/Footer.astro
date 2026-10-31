@@ -1,5 +1,7 @@
 ---
 const year = new Date().getFullYear();
+import { href } from '../lib/site';
+
 ---
 
 <footer class="site-footer">
@@ -10,11 +12,11 @@ const year = new Date().getFullYear();
 			<span class="muted">— component checks that hand you a runnable suite</span>
 		</div>
 		<nav class="links" aria-label="Footer">
-			<a href="/docs/intro/">Docs</a>
-			<a href="/docs/quickstart/">Quickstart</a>
-			<a href="/docs/recipes/">Recipes</a>
-			<a href="/docs/agent-skills/">Agent skills</a>
-			<a href="/docs/cli/">CLI</a>
+			<a href={href('/docs/intro/')}>Docs</a>
+			<a href={href('/docs/quickstart/')}>Quickstart</a>
+			<a href={href('/docs/recipes/')}>Recipes</a>
+			<a href={href('/docs/agent-skills/')}>Agent skills</a>
+			<a href={href('/docs/cli/')}>CLI</a>
 		</nav>
 		<small class="copy">© {year} · MIT licensed</small>
 	</div>

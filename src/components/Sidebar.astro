@@ -1,5 +1,9 @@
 ---
-const path = Astro.url.pathname.replace(/\/$/, '');
+// `withBase`, not `href`: the isActive helper below takes a parameter called `href`, and
+// importing the helper under its own name would shadow it inside that function.
+import { href as withBase, routePath } from '../lib/site';
+
+const path = routePath(Astro.url.pathname).replace(/\/$/, '');
 
 const sections: { title: string; links: { label: string; href: string }[] }[] = [
 	{
@@ -72,7 +76,7 @@ const isActive = (href: string) => {
 					<ul>
 						{section.links.map((l) => (
 							<li>
-								<a href={l.href} class:list={[{ active: isActive(l.href) }]}>
+								<a href={withBase(l.href)} class:list={[{ active: isActive(l.href) }]}>
 									{l.label}
 								</a>
 							</li>

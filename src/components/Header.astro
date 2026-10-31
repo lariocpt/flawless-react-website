@@ -1,20 +1,25 @@
 ---
-const path = Astro.url.pathname;
+import { href, routePath } from '../lib/site';
+
+// routePath, not Astro.url.pathname: under a base-path deploy the pathname INCLUDES the
+// base, so `path.startsWith('/docs')` would never match and every nav item would render
+// inactive.
+const path = routePath(Astro.url.pathname);
 const isActive = (prefix: string) =>
 	prefix === '/' ? path === '/' : path.startsWith(prefix);
 ---
 
 <header class="site-header">
 	<div class="container bar">
-		<a href="/" class="brand" aria-label="flawless-react home">
+		<a href={href('/')} class="brand" aria-label="flawless-react home">
 			<span class="mark" aria-hidden="true">🔬</span>
 			<span class="wordmark">flawless-react</span>
 		</a>
 		<nav class="nav" aria-label="Primary">
-			<a href="/docs/intro/" class:list={[{ active: isActive('/docs') && !isActive('/docs/generated-suite') && !isActive('/docs/recipes') }]}>Docs</a>
-			<a href="/docs/quickstart/" class:list={[{ active: path === '/docs/quickstart' }]}>Quickstart</a>
-			<a href="/docs/recipes/" class:list={[{ active: isActive('/docs/recipes') }]}>Recipes</a>
-			<a href="/docs/cli/" class:list={[{ active: path === '/docs/cli' }]}>CLI</a>
+			<a href={href('/docs/intro/')} class:list={[{ active: isActive('/docs') && !isActive('/docs/generated-suite') && !isActive('/docs/recipes') }]}>Docs</a>
+			<a href={href('/docs/quickstart/')} class:list={[{ active: path === '/docs/quickstart' }]}>Quickstart</a>
+			<a href={href('/docs/recipes/')} class:list={[{ active: isActive('/docs/recipes') }]}>Recipes</a>
+			<a href={href('/docs/cli/')} class:list={[{ active: path === '/docs/cli' }]}>CLI</a>
 		</nav>
 	</div>
 </header>
