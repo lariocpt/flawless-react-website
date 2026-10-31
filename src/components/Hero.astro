@@ -33,7 +33,13 @@ import InstallBlock from './InstallBlock.astro';
 				<span class="dot g"></span>
 				<span class="tag">flawless-react</span>
 			</div>
-			<pre class="demo-pre"><code><span class="p">$</span> flawless-react <span class="s">./src/Widget.tsx</span> <span class="op">--tasks</span> a11y,react-rules
+			<!-- tabindex: this block keeps its aligned report columns, so it scrolls sideways
+			     instead of wrapping like the fenced code elsewhere on the site (those wrap via
+			     shiki's `wrap: true`). A scrollable region a keyboard user cannot reach hides
+			     the right-hand column of the one image that is supposed to sell the tool, and
+			     axe's scrollable-region-focusable fires on it below ~600px. The global
+			     :focus-visible outline gives it a focus ring. -->
+			<pre class="demo-pre" tabindex="0"><code><span class="p">$</span> flawless-react <span class="s">./src/Widget.tsx</span> <span class="op">--tasks</span> a11y,react-rules
 
 <span class="s">src/Widget.tsx</span>
   <span class="c">warn</span>   5:5   <span class="op">lint/a11y/useKeyWithClickEvents</span>
