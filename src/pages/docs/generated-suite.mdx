@@ -4,6 +4,8 @@ title: What gets generated
 description: A file-by-file walk through everything the flawless-react scaffolders write into the output directory, what each file is for, and when you would edit it
 ---
 
+import { CRUST_URL } from '../../lib/site';
+
 ## The output directory
 
 Every file under `<outDir>/` is a string template emitted by the scaffolders. The result is fully
@@ -879,7 +881,7 @@ test, each behind a visibility check so a spec never fails merely because an ele
 state it did not open.
 
 `FLAWLESS_E2E_BASEURL` overrides the base URL and makes the config skip booting its own `webServer`.
-That is how you put a [crust](https://crust.in.drlario.org) validation proxy between the browser and
+That is how you put a <a href={CRUST_URL}>crust</a> validation proxy between the browser and
 the app, then assert afterwards that nothing the UI triggered violated your OpenAPI spec.
 
 ### Why the emitted suite refuses to be green before it is real
@@ -909,7 +911,7 @@ default load run should not write junk into whatever environment it is pointed a
 
 ### load/routes.pipes
 
-One [crust](https://crust.in.drlario.org) pipeline per target, in crust's CI-gate shape: one assert
+One <a href={CRUST_URL}>crust</a> pipeline per target, in crust's CI-gate shape: one assert
 per threshold, with the baseline read back asynchronously.
 
 ```text

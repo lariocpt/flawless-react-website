@@ -4,6 +4,8 @@ title: Route e2e against a seeded database
 description: One Playwright spec per app-router page, a write-once global-setup.ts login, params.json ids and landing overrides, the landing assertion that catches an expired session, and --changed route narrowing.
 ---
 
+import { CRUST_URL } from '../../../lib/site';
+
 **Goal:** drive every app-router page in a real browser, against a seeded database, as a really logged-in user — and have the suite go red the moment any one of those three stops being true.
 
 ## The prerequisites are the recipe
@@ -228,7 +230,7 @@ Name a ref — `--changed origin/main` — to compare against a branch point rat
 
 ## Contract-checked runs
 
-Because `FLAWLESS_E2E_BASEURL` skips the built-in `webServer`, you can put [crust](https://crust.in.drlario.org)'s validating proxy between the browser and the app, then assert that nothing the UI triggered violated your OpenAPI spec:
+Because `FLAWLESS_E2E_BASEURL` skips the built-in `webServer`, you can put <a href={CRUST_URL}>crust</a>'s validating proxy between the browser and the app, then assert that nothing the UI triggered violated your OpenAPI spec:
 
 ```bash
 crust -c 'mock-server --swagger openapi.json --port 4747 --proxy http://localhost:3001' &

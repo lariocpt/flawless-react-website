@@ -4,13 +4,15 @@ title: Load pipes with crust
 description: routes.pipes, the write-once routes.setup.ts guard and its enforced auth probe, params.json ids, LOAD_BASE and LOAD_AUTH, hand-promoted baselines, the 2x p95 gate, and --force merge semantics.
 ---
 
+import { CRUST_URL } from '../../../lib/site';
+
 **Goal:** get a load run whose numbers are about *your routes* — not about a login page, not about a 404 handler — and a gate that fails when they get worse.
 
 The `load` task is an emitter. It writes crust pipelines for the routes your app serves and the GET endpoints your components fetch, plus one setup module that refuses to let a run start when the measurement would be meaningless. flawless-react measures nothing itself.
 
 ## What crust is
 
-[crust](https://crust.in.drlario.org) is a pipeline-first test and devops toolkit — one binary, no runtime, no config file. Its vocabulary is a shell pipeline whose every stage is a real function: `load 10s 50/s` paces requests against a wall clock, `parallel 16` bounds concurrency, `GET`/`POST` speak HTTP, `stats` reduces a stream of responses to a summary object, and `assert (s => …)` runs an ordinary JavaScript predicate over it. Falsy fails the pipeline with exit 1 and prints the object it judged. `test-pipes`, `test-fixture`, `mock-server`, `gen-fixtures` and `verify-web-links` are builtins of the same binary.
+<a href={CRUST_URL}>crust</a> is a pipeline-first test and devops toolkit — one binary, no runtime, no config file. Its vocabulary is a shell pipeline whose every stage is a real function: `load 10s 50/s` paces requests against a wall clock, `parallel 16` bounds concurrency, `GET`/`POST` speak HTTP, `stats` reduces a stream of responses to a summary object, and `assert (s => …)` runs an ordinary JavaScript predicate over it. Falsy fails the pipeline with exit 1 and prints the object it judged. `test-pipes`, `test-fixture`, `mock-server`, `gen-fixtures` and `verify-web-links` are builtins of the same binary.
 
 Two properties are why the `load` task targets crust rather than emitting a bespoke runner:
 

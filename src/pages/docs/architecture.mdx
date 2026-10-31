@@ -4,6 +4,8 @@ title: Architecture
 description: How flawless-react splits into an analyse phase and a scaffold phase, what each one does, and the limits the design keeps on purpose
 ---
 
+import { CRUST_URL } from '../../lib/site';
+
 ## Overview
 
 `flawless-react` is structured as a task registry. The CLI (`src/cli.ts`) parses args — or prompts for them — expands the positional glob into entry files, analyses each one into a `ComponentTree`, then dispatches the selected tasks against a shared `RunContext`.
@@ -133,7 +135,7 @@ The split buys three things:
 ## What it borrows from crust
 
 Two of the load-bearing pieces here are not original, and it is worth saying where they came
-from. [crust](https://crust.in.drlario.org) is the sibling project — a pipeline-first test and
+from. <a href={CRUST_URL}>crust</a> is the sibling project — a pipeline-first test and
 devops toolkit shipped as one binary — and flawless-react leans on it twice.
 
 The `load` task **emits crust pipelines**: `load/routes.pipes` holds one pipe per route and per
