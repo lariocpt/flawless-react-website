@@ -74,6 +74,16 @@ jobs:
             echo "FAIL: unbased internal links above would 404 under the base path"
             exit 1
           fi
+          # An internal page link that omits the trailing slash still WORKS — Pages 301s it to
+          # the slashed form Astro emits — which is why nothing catches it until a crawler does.
+          # crust's post-deploy check found one of these on the first real run; this catches the
+          # class before the deploy instead of after it.
+          if grep -rhoE 'href="/[^"]*"' dist --include='*.html' \
+             | grep -vE '/"' | grep -vE '\.(svg|ico|png|jpg|webp|css|js|xml|json|txt)"' \
+             | sort -u | grep .; then
+            echo "FAIL: internal links above lack a trailing slash and resolve through a 301"
+            exit 1
+          fi
           echo "gate passed: repo link present, no LAN leakage, canonical correct, links based"
 
       - uses: actions/upload-pages-artifact@v3
