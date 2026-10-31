@@ -38,7 +38,10 @@ const {
 <style>
 	.install {
 		display: flex;
-		align-items: center;
+		/* flex-start, not center: the command wraps now (see .cmd), and a `$` prompt or a
+		   copy button floating at the vertical middle of a two-line command reads as if it
+		   belonged to the second line. */
+		align-items: flex-start;
 		gap: 0.75rem;
 		background: var(--code-bg);
 		border: 1px solid var(--border);
@@ -61,8 +64,15 @@ const {
 		border: 0;
 		padding: 0;
 		font-size: inherit;
-		overflow-x: auto;
-		white-space: nowrap;
+		/* This wraps rather than scrolling. A single-line block with `overflow-x: auto` made
+		   the install command a scrollable region no keyboard user could reach — axe flagged
+		   it on every page that shows the block, at desktop widths included, because the
+		   curl one-liner is wider than the column it sits in. Truncating the command to
+		   "…install.sh | bash -s --…" behind a scrollbar is also the worst way to show
+		   someone the thing they are meant to run: breaking the URL costs nothing, hiding
+		   half of it costs the point of the block. */
+		white-space: normal;
+		overflow-wrap: break-word;
 		flex: 1;
 		min-width: 0;
 	}
