@@ -2,7 +2,10 @@
 layout: ../../layouts/DocsLayout.astro
 title: Quickstart
 description: From install to a runnable Playwright suite and your first file:line findings, in one component and a handful of commands
+
 ---
+
+import { NPM_INSTALL_COMMAND } from '../../lib/site';
 
 import InstallBlock from '../../components/InstallBlock.astro';
 
@@ -18,7 +21,7 @@ The standalone binary needs no Bun and nothing installed alongside it:
 The source package needs Bun >= 1.1, and every task works with no further setup because
 `@biomejs/biome` comes along as a real dependency:
 
-<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Install" />
+<InstallBlock command={NPM_INSTALL_COMMAND} label="Install" />
 
 One caveat before you pick the binary: it is self-contained Bun, but it cannot carry biome
 inside itself. `perf-harness`, `unit-browser` and `perf-static` work anywhere; `a11y` and

@@ -2,7 +2,10 @@
 layout: ../../layouts/DocsLayout.astro
 title: Install
 description: The two install channels for flawless-react, what each needs on the target machine, and which tasks each can run
+
 ---
+
+import { NPM_INSTALL_COMMAND } from '../../lib/site';
 
 import InstallBlock from '../../components/InstallBlock.astro';
 
@@ -38,7 +41,7 @@ binary; `a11y` and `react-rules` have the caveat described below.
 
 Every task works with no further setup, because biome comes along as a real dependency.
 
-<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" />
+<InstallBlock command={NPM_INSTALL_COMMAND} />
 
 You can also run it one-shot with no install at all, which is the usual way to try it against a
 single component:

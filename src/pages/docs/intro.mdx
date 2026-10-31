@@ -2,7 +2,10 @@
 layout: ../../layouts/DocsLayout.astro
 title: Intro
 description: What flawless-react is — point it at a component or a glob, pick which checks to run, and get back a runnable suite plus file-and-line findings
+
 ---
+
+import { NPM_INSTALL_COMMAND } from '../../lib/site';
 
 import InstallBlock from '../../components/InstallBlock.astro';
 
@@ -88,7 +91,7 @@ Two channels, and unlike most tools they genuinely ship different things. Pick b
 
 **Source package** — needs Bun 1.1 or newer at runtime, and every task works with no further setup because `@biomejs/biome` comes along as a real dependency:
 
-<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Source install" />
+<InstallBlock command={NPM_INSTALL_COMMAND} label="Source install" />
 
 The [install page](/docs/install/) covers both channels in full.
 

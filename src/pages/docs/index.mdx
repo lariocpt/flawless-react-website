@@ -2,7 +2,10 @@
 layout: ../../layouts/DocsLayout.astro
 title: Docs
 description: Start here — what flawless-react does, how to install it, and where the rest of these pages lead.
+
 ---
+
+import { NPM_INSTALL_COMMAND } from '../../lib/site';
 
 import InstallBlock from '../../components/InstallBlock.astro';
 
@@ -22,7 +25,7 @@ like any other test code.
 <InstallBlock />
 
 That is the standalone binary — no Bun needed on the target machine. The source package
-(`bun add -g flawless-react --registry https://npm.in.drlario.org`) needs Bun >= 1.1 but
+(<code>{NPM_INSTALL_COMMAND}</code>) needs Bun >= 1.1 but
 carries `@biomejs/biome` as a real dependency, so every task works with no further setup.
 The difference matters for two of the seven tasks; see [Install](/docs/install/).
 

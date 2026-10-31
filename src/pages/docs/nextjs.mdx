@@ -2,7 +2,10 @@
 layout: ../../layouts/DocsLayout.astro
 title: Next.js mode
 description: How --nextjs detects your router, derives MSW handlers and a swagger.json from your API routes, and writes the suite into your existing project
+
 ---
+
+import { NPM_INSTALL_COMMAND } from '../../lib/site';
 
 import InstallBlock from '../../components/InstallBlock.astro';
 
@@ -287,7 +290,7 @@ Biome is the one tool that keeps a manual step, because there is no ignore file 
 
 A Next.js project that already lints with biome satisfies that for free. If yours does not, either add biome to it (`bun add -d @biomejs/biome`), or use the source package, which carries biome as a real dependency and needs no further setup:
 
-<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Install the source package" />
+<InstallBlock command={NPM_INSTALL_COMMAND} label="Install the source package" />
 
 The standalone binary needs no Bun on the target machine at all:
 

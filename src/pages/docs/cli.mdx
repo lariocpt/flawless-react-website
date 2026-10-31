@@ -2,7 +2,10 @@
 layout: ../../layouts/DocsLayout.astro
 title: CLI reference
 description: Every flag flawless-react accepts, the seven task ids you can select, and what each task writes
+
 ---
+
+import { NPM_INSTALL_COMMAND } from '../../lib/site';
 
 import InstallBlock from '../../components/InstallBlock.astro';
 
@@ -116,7 +119,7 @@ Any React codebase that already lints with biome satisfies this for free. Otherw
 
 Or install flawless-react from the source package, which carries `@biomejs/biome` as a real dependency so all seven tasks work with no further setup. That channel needs Bun >= 1.1 on the machine running it.
 
-<InstallBlock command="bun add -g flawless-react --registry https://npm.in.drlario.org" label="Install" />
+<InstallBlock command={NPM_INSTALL_COMMAND} label="Install" />
 
 ## Output and reporting
 

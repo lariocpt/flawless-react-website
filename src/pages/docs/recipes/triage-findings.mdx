@@ -2,7 +2,10 @@
 layout: ../../../layouts/DocsLayout.astro
 title: Triage the findings
 description: perf-static, a11y and react-rules end to end — the biome dependency and its two fixes, reports/ JSON, flawless.json sidecars, REPORT.md's accounting, suppression placement, and the unused-suppression trap.
+
 ---
+
+import { NPM_INSTALL_COMMAND } from '../../../lib/site';
 
 **Goal:** turn a run's findings list into a burn-down — fix what is a real bug, suppress the rest with a reason that both the tool's sweeps and your project's own biome accept as legitimate.
 
@@ -68,7 +71,7 @@ That run exits **1**. A failed task is never quietly counted as clean — `findi
 
 The two fixes are the two the error names:
 
-- **Use the source package.** `bun add -g flawless-react --registry https://npm.in.drlario.org` brings `@biomejs/biome` along as a real dependency, so all seven tasks work with no further setup — the channel to pick when the target machine has Bun.
+- **Use the source package.** <code>{NPM_INSTALL_COMMAND}</code> brings `@biomejs/biome` along as a real dependency, so all seven tasks work with no further setup — the channel to pick when the target machine has Bun.
 - **Make biome reachable from the scanned project.** `bun add -d @biomejs/biome` there, or a global install on `PATH`. The compiled binary cannot carry biome inside itself, so this is what the standalone artefact needs.
 
 The ancestor walk exists for monorepos: a workspace hoists dev dependencies to the root, so `apps/web/node_modules/.bin/biome` does not exist while `<root>/node_modules/.bin/biome` does. Any React codebase that already lints with biome satisfies the requirement for free.

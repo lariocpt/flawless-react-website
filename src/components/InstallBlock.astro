@@ -1,18 +1,18 @@
 ---
+import { INSTALL_COMMAND } from '../lib/site';
+
 interface Props {
 	command?: string;
 	label?: string;
 }
-// The LAN artifact plane, not GitHub. install.sh resolves flawless-react through
-// apps.in.drlario.org/index.tsv and verifies the published sha256 before installing, so this
-// one-liner needs no clone, no Bun on the target machine, and no public repo.
+// The default follows the build mode (see src/lib/site.ts): the LAN artifact plane unless
+// PUBLIC_SITE=1, where install.sh comes out of the repo and lands on the GitHub release.
+// Either way it verifies the published sha256 before installing, and needs no clone and no
+// Bun on the target machine.
 //
-// This is the BINARY channel. `bun add -g flawless-react` is the other one, and unlike crust
-// the two genuinely ship different things — see /docs/install.
-const {
-	command = 'curl -fsSL https://apps.in.drlario.org/install.sh | bash -s -- flawless-react',
-	label = 'Install',
-} = Astro.props;
+// This is the BINARY channel. The npm one is the other, and unlike crust the two genuinely
+// ship different things — see /docs/install.
+const { command = INSTALL_COMMAND, label = 'Install' } = Astro.props;
 ---
 
 <div class="install" data-install>
