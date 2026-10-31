@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
+import { rehypeTableWrap } from './src/plugins/rehype-table-wrap.mjs';
 
 // https://astro.build/config
 export default defineConfig({
@@ -13,7 +14,11 @@ export default defineConfig({
 	// `new URL(Astro.url.pathname, Astro.site)`, which throws on an undefined base — so a
 	// missing value fails the build rather than quietly emitting wrong canonical tags.
 	site: process.env.SITE_URL ?? 'https://flawless-react.in.drlario.org',
-	integrations: [mdx(), sitemap()],
+	// `gfm: true` is not the default for @astrojs/mdx (it pushes remark-gfm only when
+	// the option is truthy), so without it every `| … |` table in the docs — the CLI
+	// flag table first of all — is emitted as literal pipe characters in a paragraph.
+	// `rehypeTableWrap` then gives those tables the scroll container they need on a phone.
+	integrations: [mdx({ gfm: true, rehypePlugins: [rehypeTableWrap] }), sitemap()],
 	markdown: {
 		shikiConfig: {
 			theme: 'github-dark',

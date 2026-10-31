@@ -161,6 +161,31 @@ td {
 	text-align: left;
 	padding: 0.6em 0.9em;
 	border-bottom: 1px solid var(--border);
+	/* `break-word`, not `anywhere`: `anywhere` also shrinks a cell's *min-content* to
+	   one character, and an auto table then squeezes an identifier column (`Flag`,
+	   `Tool`) until `--exclude <glob>` and `flawless_project_status` break mid-word.
+	   This is only a last resort for a token wider than its cell. */
+	overflow-wrap: break-word;
+}
+
+/* A Markdown table brings no markup of its own, so src/plugins/rehype-table-wrap.mjs
+   gives every one of them this container. Below the width where a table's columns can
+   each hold their longest token, the table keeps a readable minimum width and scrolls
+   inside the wrapper — the alternative is breaking `flawless_project_status` into
+   `fla`/`wle`/`ss_r`, or a page wider than the phone, and both were measured here. */
+.table-wrap {
+	overflow-x: auto;
+	margin: 0 0 1.5em;
+}
+
+.table-wrap > table {
+	margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+	.table-wrap > table {
+		min-width: 35rem;
+	}
 }
 
 th {
