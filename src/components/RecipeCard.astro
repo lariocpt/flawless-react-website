@@ -10,7 +10,9 @@ const { href, title, tag } = Astro.props;
 <a class="card" href={href}>
 	<div class="head">
 		{tag && <span class="tag">{tag}</span>}
-		<h3>{title}</h3>
+		<!-- h2, not h3: these cards are the page's only sections before its first `##`, so a
+		     third level under the page title skipped a level (axe's heading-order rule). -->
+		<h2>{title}</h2>
 	</div>
 	<div class="body">
 		<slot />
@@ -53,7 +55,11 @@ const { href, title, tag } = Astro.props;
 		border-radius: 4px;
 		width: fit-content;
 	}
-	.card h3 {
+	/* Three classes, not two: DocsLayout styles headings inside the MDX body as
+	   `.prose h2 { margin-top: 2.5em }`, and this card sits in that body. At equal
+	   specificity the prose rule could win and push every card title 2.5em down, so this
+	   selector deliberately outranks it instead of relying on stylesheet order. */
+	.card .head h2 {
 		margin: 0;
 		font-size: 1.1rem;
 	}
