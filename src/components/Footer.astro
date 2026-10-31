@@ -1,7 +1,10 @@
 ---
-const year = new Date().getFullYear();
-import { href } from '../lib/site';
+import { href, isPublic, REPO_URL } from '../lib/site';
 
+// The Source link is public-mode only, and the reason it must not be an HTML comment in the
+// template is that Astro emits HTML comments: a note here mentioning github.com would land
+// in dist/index.html and fail the LAN build's own Gate, which greps for exactly that.
+const year = new Date().getFullYear();
 ---
 
 <footer class="site-footer">
@@ -17,6 +20,7 @@ import { href } from '../lib/site';
 			<a href={href('/docs/recipes/')}>Recipes</a>
 			<a href={href('/docs/agent-skills/')}>Agent skills</a>
 			<a href={href('/docs/cli/')}>CLI</a>
+			{isPublic && <a href={REPO_URL}>Source</a>}
 		</nav>
 		<small class="copy">© {year} · MIT licensed</small>
 	</div>
