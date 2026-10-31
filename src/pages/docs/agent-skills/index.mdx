@@ -21,6 +21,12 @@ write-once, why a load run reporting a healthy p95 might have measured a login f
 an unused suppression means, and when a marker is the tool being honest rather than a gap
 to paper over.
 
+Skills are instructions, not capability — they tell an agent what to type. If the host
+speaks the Model Context Protocol, [`flawless-react mcp`](/docs/mcp/) hands it the same
+capabilities as callable tools instead, with no shell in between. The two are meant to be
+used together: the skills decide what should run, the MCP tools run it and hand back the
+verdict.
+
 ## The fourteen
 
 One skill per feature area. `flawless-react` is the umbrella and router; the rest go a
@@ -109,3 +115,5 @@ read these docs and skip the skills entirely.
 - [Route tests, load, native and the API](/docs/agent-skills/e2e-load-and-api/) —
   `flawless-e2e`, `flawless-load`, `flawless-expo` and `flawless-api`
 - [Recipes](/docs/recipes/) — the same workflows written for a human reader
+- [MCP server](/docs/mcp/) — the same capabilities as tools an MCP host calls, for agents
+  that should not have a shell
