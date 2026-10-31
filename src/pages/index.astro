@@ -163,14 +163,17 @@ import FeatureCard from '../components/FeatureCard.astro';
 		font-size: 1.05rem;
 		margin-bottom: 2.5rem;
 	}
+	/* `min(260px, 100%)`: a track's minimum is a floor the grid cannot shrink below, so a
+	   bare 260px made every card 260px wide on a 240px phone and the page scrolled sideways.
+	   Same reason in .recipe-grid, which is where the bug was measured. */
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
 		gap: 1rem;
 	}
 	.recipe-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
 		gap: 1rem;
 	}
 	.recipe {
