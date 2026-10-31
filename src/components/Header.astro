@@ -81,8 +81,24 @@ const isActive = (prefix: string) =>
 		opacity: 0.7;
 	}
 	@media (max-width: 600px) {
+		/* Brand and four links do not fit one row: at a 400px viewport the bar has 352px,
+		   the wordmark takes ~160 of them and the nav needs 254, so the nav was pushed to
+		   x=169 and every page scrolled sideways to 423px. The nav takes a row of its own
+		   rather than the document growing wider than the device. */
+		.bar {
+			height: auto;
+			flex-wrap: wrap;
+			row-gap: 0.35rem;
+			padding: 0.55rem 0 0.6rem;
+		}
+		.nav {
+			/* 240px viewports are reachable (and reachable by zoom): four links still do not
+			   fit there, so let them wrap rather than overflow again. */
+			flex-wrap: wrap;
+			row-gap: 0.1rem;
+		}
 		.nav a {
-			padding: 0.5rem 0.55rem;
+			padding: 0.4rem 0.55rem;
 			font-size: 0.9rem;
 		}
 		.nav .github {
