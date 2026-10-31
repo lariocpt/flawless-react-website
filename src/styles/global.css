@@ -112,6 +112,17 @@ code {
 	border: 1px solid var(--border-soft);
 }
 
+@media (max-width: 640px) {
+	/* Prose names a tool as one unbreakable token — `flawless_project_status` is wider than
+	   a 240px viewport's text column, so a paragraph of tool names pushed the document to
+	   263px. Prose may break inside such a token; it may not break inside a word elsewhere.
+	   Table cells keep their own min-content squeeze below 640px, which the min-width on
+	   `.table-wrap > table` already absorbs inside the scroll container. */
+	code {
+		overflow-wrap: anywhere;
+	}
+}
+
 pre {
 	font-family: var(--font-mono);
 	background: var(--code-bg);
