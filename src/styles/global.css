@@ -7,7 +7,12 @@
 	--bg-elevated: #1a2430;
 	--fg: #e6edf3;
 	--fg-muted: #8b98a5;
-	--fg-faint: #5a6572;
+	/* The faintest tier is still text, not decoration: footer copy, the hero's code comments
+	   and the pane labels all render at 13.6px, which needs 4.5:1. The old #5a6572 measured
+	   2.95:1 on --bg-soft and 3.3:1 on --code-bg. #808d9a is the value that clears AA on
+	   every background it is used over — 5.17 on --bg-soft, 5.78 on --code-bg and 4.63 on
+	   --bg-elevated, the lightest of them — while staying a visible step below --fg-muted. */
+	--fg-faint: #808d9a;
 	--accent: #61dafb;
 	--accent-2: #3b82f6;
 	--accent-glow: rgba(97, 218, 251, 0.22);
