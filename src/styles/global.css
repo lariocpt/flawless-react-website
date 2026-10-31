@@ -231,6 +231,29 @@ blockquote {
 	color: var(--fg-muted);
 }
 
+/* Table corners that must be named for a screen reader but must not be printed. A data
+   table whose first column holds row headers has a blank top-left cell, and an empty <th>
+   is a name with nothing behind it — axe's empty-table-header rule. */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* The cell has to be the containing block. With none, an absolutely positioned descendant
+   of a table cell resolves its static position outside the table's scroll container: these
+   spans measured right=572 on /docs/case-study/ at a 400px viewport and widened the whole
+   document to 572px, which is the exact overflow the wrapper exists to prevent. */
+:is(th, td):has(.sr-only) {
+	position: relative;
+}
+
 .eyebrow {
 	display: inline-block;
 	font-size: 0.78rem;
