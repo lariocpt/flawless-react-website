@@ -124,11 +124,11 @@ http.get("/api/items/:id", () => HttpResponse.json({"id":1,"name":"Widget"})),
 
 Bodies are real now, and `/api/items/:id` appeared — a path the AST walk never saw, because the spec knows routes the filesystem does not. `/api/health` survived with its empty body: it is in the walk and not the spec, and the handler list is the **union**. `swagger.json` is not — under `--api` it is the spec verbatim, so `/api/health` is missing from it.
 
-### The trap: `handlers.ts` is write-once
+### The trap that got narrower: `handlers.ts` refreshes on spec moves
 
-Run once without a spec, then again with `--api`, and the second run reports `enriched routes from openapi.json` followed by `wrote 1 mock file(s)`. One file — `swagger.json`. `handlers.ts` already existed, so it was left alone, still full of `{}`.
+Run once without a spec, then again with `--api`: if you have not edited `handlers.ts`, the second run refreshes it — `mocks/handlers.ts: regenerated from a newer spec` — because untouched generated output should track the spec it came from. Your edits are what hold it: a file whose `// @flawless-generated` stamp no longer matches its body is reported `kept (hand-edited) — regenerate with --force or delete it`, and a file with no stamp at all (hand-written, or written before stamping existed) is always kept. `--force` regenerates even a hand-edited file — the named escape hatch, and the reason realistic fixtures survive every other run.
 
-**`--force` does not help.** `mocks/handlers.ts` is protected under every flag — it is where you paste realistic fixtures, and losing those is worse than keeping stale ones. Its siblings `browser.ts`, `node.ts` and `mocks/README.md` *are* refreshed; they hold nothing of yours. So the symptom is `swagger.json` naming a route `handlers.ts` has never heard of, and the fix is to delete `flawless/mocks/handlers.ts` and re-run.
+What is left of the trap is the narrow case: `swagger.json` naming a route `handlers.ts` has never heard of, in a file you edited or that carries no stamp. `--force` or a delete-and-rerun reaches it. Its siblings `browser.ts`, `node.ts` and `mocks/README.md` hold nothing of yours and refresh every run either way.
 
 ## Flags
 
@@ -141,7 +141,7 @@ Run once without a spec, then again with `--api`, and the second run reports `en
 | `--out <dir>` | `<project>/flawless` | Relative to the project root. The gitignore block follows it. |
 | `--tasks <ids>` | `perf-harness` | Decides which `flawless:*` scripts get declared: `perf-harness`, `unit-browser`, `perf-static`, `a11y`, `react-rules`, `e2e`, `load`. |
 | `--colocate` | off | Specs beside your sources; changes which spelling of `flawless:unit` is merged. |
-| `--force` | off | Refreshes `provider.tsx`, colocated specs, e2e route specs. Never `handlers.ts` or `provider.fixtures.ts`. |
+| `--force` | off | Refreshes `provider.tsx`, colocated specs, e2e route specs, and `handlers.ts` even hand-edited. Never `provider.fixtures.ts`. |
 
 One thing no flag fixes: `a11y` and `react-rules` shell out to biome, which the **standalone binary cannot carry inside itself** — it looks for `node_modules/.bin/biome` in the project being scanned, every ancestor workspace root, then on `PATH`, and it needs **biome 2**: the sweeps write a biome 2 config and parse its JSON reporter, so a binary of another major is skipped in favour of one that can read the config, and a repo whose only biome is a 1.x gets a failure naming it, not a clean sweep. An app already linting with biome 2 satisfies that; otherwise `bun add -d @biomejs/biome` there, or take the source package ([Install](/docs/install/)).
 
@@ -205,7 +205,7 @@ Honest about what doesn't work yet:
 
 - **The AST walk cannot read a catch-all.** `[[...route]]/route.ts` re-exporting a Hono app yields one path and no methods worth mocking; `--api` is the only way to useful mocks.
 - **Pages-router methods are assumed, never read** — all five per file, because the method lives inside a `req.method` switch.
-- **`handlers.ts` never upgrades.** No flag rewrites it; deleting it is the escape hatch.
+- **`handlers.ts` only upgrades while it is untouched.** Once you edit it — or if it predates stamping — no re-run touches it; `--force` or deleting it is the escape hatch.
 - **MSW cannot mock a server component's database access**, so nothing here makes `e2e` mockable — it runs against your real dev server, on data you seeded.
 
 ## Exit codes

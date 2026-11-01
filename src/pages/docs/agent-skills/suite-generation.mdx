@@ -156,8 +156,9 @@ inferred routes. Without any spec the tool walks `app/**/api/**/route.ts`, which
 case a Hono or tRPC catch-all defeats — that is what `--api` exists for.
 
 Then the ownership table, because the two files behave oppositely: `flawless/swagger.json` is
-rewritten every run, while `flawless/mocks/handlers.ts` is written once and **not overwritten by
-`--force` either** — it is the file you edit, and the reason a body you fixed once stays fixed.
+rewritten every run, while `flawless/mocks/handlers.ts` keeps your edits — it regenerates only
+when the API spec moved and the file still matches its generated stamp, and `--force` overrides
+even hand edits — it is the file you edit, and the reason a body you fixed once stays fixed.
 The three MSW wiring points are named and bounded: `setupServer` in the Vitest setup, a service
 worker started before the host mounts for browser and perf specs, and neither of them reaching a
 server component, which is the honest reason `e2e` runs against the real app.

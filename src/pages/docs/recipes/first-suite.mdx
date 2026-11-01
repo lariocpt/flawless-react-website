@@ -252,7 +252,7 @@ Findings never fail the run: 246 `perf-static` warnings still exit `0`. Gating o
 
 It lives in `--out`, imports nothing from flawless-react, and the generator has no opinion about what you do next. Commit it and the diff is reviewable: emitted files are reformatted with your project's own biome or prettier before the run ends, and a second identical run leaves `git status` empty.
 
-A re-run rewrites everything it can rebuild from the analysis — deliberately, because a frozen file never receives a later version's improvements. What it never rewrites is the work only you can do: `budgets.json`, `host/main.tsx`, `provider.fixtures.ts`, `mocks/handlers.ts`, `e2e/global-setup.ts`. It names what it kept:
+A re-run rewrites everything it can rebuild from the analysis — deliberately, because a frozen file never receives a later version's improvements. What it never rewrites is the work only you can do: `budgets.json`, `host/main.tsx`, `provider.fixtures.ts`, `e2e/global-setup.ts` — and `mocks/handlers.ts` stays yours while your edits are in it: an untouched handlers file refreshes when the API spec moves, because its bodies are rebuildable from the spec. It names what it kept:
 
 ```text
   [ok] perf-harness   files:13 findings:0  refreshed perf suite for 3 of 3 component(s): Dashboard, Hello, Card; kept host/main.tsx, budgets.json (delete one to regenerate it)

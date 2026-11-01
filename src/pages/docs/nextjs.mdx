@@ -128,7 +128,7 @@ export const handlers = [
 ];
 ```
 
-The empty bodies are the honest default: static analysis of a route handler can tell you the method and the path, but not what the response looks like. Replacing `HttpResponse.json({})` with a realistic fixture is the one piece of work the tool cannot do for you — and once `handlers.ts` exists, flawless will not overwrite it, so your fixtures survive every later run.
+The empty bodies are the honest default: static analysis of a route handler can tell you the method and the path, but not what the response looks like. Replacing `HttpResponse.json({})` with a realistic fixture is the one piece of work the tool cannot do for you — and your fixtures survive later runs: `handlers.ts` is regenerated only when the API spec changed and the file still carries its untouched generated stamp, or when you pass `--force`. A file you have edited is kept and reported.
 
 Three more files land next to it, also written only when absent:
 
@@ -154,7 +154,7 @@ The response has to be a success status *and* have a JSON content type to be use
 - routes whose path matches a statically-discovered route have their response bodies filled in and any extra methods merged in
 - paths that only the live spec knows about are appended to the route list
 - `swagger.json` is written verbatim from the fetched spec rather than derived from the AST
-- `mocks/handlers.ts`, if it does not exist yet, gets real bodies instead of `{}`
+- `mocks/handlers.ts` gets real bodies instead of `{}` — either it does not exist yet, or it exists untouched and the spec digest moved, so the refresh reaches it
 
 Point it at a different URL when your docs endpoint is not at the default:
 
@@ -193,7 +193,7 @@ my-next-app/
     ├── pnpm-workspace.yaml  # write-once — pnpm 10+ build-script allowance for esbuild
     ├── setup.ts          # Vitest setup; jest-dom, jsdom gaps, native-import stubs, MSW where fetched
     ├── mocks/
-    │   ├── handlers.ts   # yours to edit; never overwritten
+    │   ├── handlers.ts   # yours to edit; kept while your edits are in it
     │   ├── browser.ts
     │   ├── node.ts
     │   └── README.md

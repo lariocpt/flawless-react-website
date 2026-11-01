@@ -119,12 +119,22 @@ because their contents cannot be recovered if lost:
 
 Protected under every flag, including `--force`: `flawless/budgets.json`,
 `flawless/mock/routes.ts`, `flawless/host/main.tsx` (the wrapper only — the mount tables in
-`host/registry.ts` beside it regenerate every run), `flawless/provider.fixtures.ts`,
-`flawless/e2e/global-setup.ts` and `flawless/mocks/handlers.ts`.
+`host/registry.ts` beside it regenerate every run), `flawless/provider.fixtures.ts` and
+`flawless/e2e/global-setup.ts`.
 
 Merge-preserving under `--force`: `flawless/e2e/params.json` (stale route keys are pruned,
 filled values never are) and `flawless/load/routes.pipes` (your edited pipes and rates
 survive; only the header regenerates).
+
+`flawless/mocks/handlers.ts` sits beside that group, not in the protected one: it is kept
+while your edits are in it, and refreshed when they are not. Without `--force` a re-run
+regenerates it only when the API spec has changed and the file still matches its
+`// @flawless-generated` stamp — the stamp's body carries a `// @flawless-spec sha256:…`
+digest of the spec it was generated from. A hand-edited file (stamp mismatch), or one with
+no stamp at all (hand-written or from before stamping), is kept and reported; `--force`
+regenerates even a hand-edited file. The line is deliberate: handler bodies are rebuildable
+from the spec, so freezing the file would let it silently rot when your API moves — unlike
+a tightened `budgets.json` or a hand-hardened spec, which are work the tool cannot rebuild.
 
 Colocated `*.flawless.test.tsx` specs are kept without `--force` — and guarded WITH it: each
 opens with a `// @flawless-generated sha256:…` stamp hashing the rest of the file, and
