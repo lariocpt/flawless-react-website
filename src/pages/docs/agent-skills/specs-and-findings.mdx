@@ -226,8 +226,21 @@ over `reports/`.
 `REPORT.md` regenerates every run and describes the **last run, not the suite on disk**. Its
 components table puts every component in exactly one render-mode row (client, rsc,
 compound-part, document-root, null), split by mountable or not; "Not covered, and why" names
-each gap; the task table's Status column says where `perf-harness` sat in the lifecycle,
-generated / refreshed / kept. A file count is not coverage.
+each gap; the coverage ledger is **name-level** — every exported symbol of every analysed file
+appears by name with a spec pointer or a named reason (`covered-through: <parent>`,
+`not-analysed: <reason>`, `not-spec'd: <reason>`), so an unspecced component answers for itself
+instead of vanishing into a count; the task table's Status column says where `perf-harness` sat
+in the lifecycle, generated / refreshed / kept. A file count is not coverage.
+
+Beside it, `VERDICT.md` (+ `VERDICT.json`) is the **accumulated** record: one entry per task —
+each plane's *last* run — keyed by (task, target-hash), so seven planes' results accumulate
+across runs and a one-plane run never erases the other six. Each entry carries the tallies, the
+evidence pointers behind them (`reports/*.json`, `heaps/`, `load/last-*.json`), and the skip
+census aggregated by reason-string — the reason table's total is checked against the per-plane
+Skips column, one census two views. The tallies are *generation* tallies (runtime pass/fail
+belongs to the runner; an absent field is unmeasured, not zero), and there are no timestamps:
+an unchanged target rewrites the verdict byte-identically, so churn in the verdict without a
+target change is a determinism bug, not noise.
 
 ### Triage in order, and stop before the advisory tail
 

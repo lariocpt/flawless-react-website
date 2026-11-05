@@ -61,7 +61,9 @@ The default output directory is `./.flawless`; `--out <dir>` moves it.
 ├── reports/                  # perf-static / a11y / react-rules findings + summary.json
 ├── scripts/report.mjs        # only with --report
 ├── heaps/                    # populated at test time — V8 .heapsnapshot files
-├── REPORT.md                 # every run — what mounted, what was excluded, hand-work left
+├── REPORT.md                 # every run — what mounted, what was excluded (by name), hand-work left
+├── VERDICT.md                # accumulated verdict — each plane's LAST run, keyed by (task, target-hash)
+├── VERDICT.json              # the same verdict, machine-readable
 └── README.md                 # how to run + customise the suite
 ```
 
